@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="dashboard-header">
+    <div class="header-content">
+        <h1>Dashboard Overview</h1>
+        <p class="text-muted">Welcome back, {{ profile.get('full_name', 'User') }}</p>
+    </div>
+</div>
+
+<!-- Stats Row -->
+<div class="stats-grid">
+    <!-- Total Spent -->
+    <div class="stat-card">
+        <span class="stat-title">Total Spent</span>
+        <span class="stat-value">₹{{ total }}</span>
+        <div style="margin-top: 0.5rem; font-size: 0.8125rem; color: var(--text-tertiary);">This Month</div>
+    </div>
+
+    <!-- Budget -->
+    <div class="stat-card">
+        <div style="display: flex; justify-content: space-between; align-items: start;">
+            <span class="stat-title">Monthly Budget</span>
+            <button onclick="document.getElementById('budget-modal').style.display='block'" style="background:none; border:none; color: var(--brand-start); cursor: pointer; font-size: 0.8rem; padding: 0;">Edit</button>
+        </div>
+        <span class="stat-value">₹{{ budget }}</span>
+        <div class="progress-bar-container" style="height: 6px; margin-top: 0.75rem;">
+            <div class="progress-bar {{ progress_class }}" style="width: {{ percentage }}%"></div>
+        </div>
+    </div>
+
+    <!-- Remaining -->
+    <div class="stat-card">
+        <span class="stat-title">Remaining</span>
+        {% set remaining = budget - total %}
+        <span class="stat-value" style="color: {% if remaining < 0 %}var(--accent-danger){% else %}var(--accent-success){% endif %};">
+            ₹{{ remaining }}
+        </span>
+        <div style="margin-top: 0.5rem; font-size: 0.8125rem; color: {% if remaining < 0 %}var(--accent-danger){% else %}var(--text-tertiary){% endif %};">
+            {% if remaining < 0 %}Over Budget{% else %}Safe to spend{% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Main Content Split -->
+<div class="dashboard-split">
+    <!-- Recent Activity Table -->
+    <div class="card">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <h2>Recent Activity</h2>
+            <a href="{{ url_for('expenses') }}" style="font-size: 0.875rem; color: var(--brand-start); text-decoration: none; font-weight: 500;">View All</a>
+        </div>
+        <div class="table-responsive">
+            <table class="styled-table">
+                <thead>
+                    <tr>
+                        <th style="padding-top: 0.75rem; padding-bottom: 0.75rem;">Date</th>
+                        <th style="padding-top: 0.75rem; padding-bottom: 0.75rem;">Category</th>
+                        <th style="padding-top: 0.75rem; padding-bottom: 0.75rem;">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for expense in expenses[:5] %}
+                    <tr>
+                        <td style="padding: 0.75rem 1.5rem;">{{ expense.date | format_date }}</td>
+                        <td style="padding: 0.75rem 1.5rem;"><span class="badge">{{ expense.category }}</span></td>
+                        <td class="amount-cell text-expense" style="padding: 0.75rem 1.5rem;">-₹{{ expense.amount }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="3" style="text-align: center; padding: 2rem;">No recent activity.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Quick Actions (Side) -->
+    <div class="card" style="height: fit-content;">
+        <div class="card-header">
+            <h2>Quick Actions</h2>
+        </div>
+        <div class="card-body" style="display: flex; flex-direction: column; gap: 0.75rem;">
+             <a href="{{ url_for('add_expense') }}" class="btn-primary" style="justify-content: center;">+ Add Expense</a>
+             <a href="{{ url_for('expenses') }}" class="btn-secondary" style="justify-content: center;">View All Expenses</a>
+             <a href="{{ url_for('reports') }}" class="btn-outline" style="justify-content: center;">View Reports</a>
+        </div>
+    </div>
+</div>
+
+<!-- Budget Modal -->
+<div id="budget-modal" class="modal">
+    <div class="modal-content">
+        <span onclick="document.getElementById('budget-modal').style.display='none'" class="close">&times;</span>
+        <h2>Set Monthly Budget</h2>
+        <form action="{{ url_for('set_budget') }}" method="POST">
+            <div class="form-group">
+                <label>Budget Amount (₹)</label>
+                <input type="number" name="budget" required>
+            </div>
+            <button type="submit" class="btn-primary">Save</button>
+        </form>
+    </div>
+</div>
+
+<script>
+    window.onclick = function(event) {
+        if (event.target.className === 'modal') {
+            event.target.style.display = "none";
+        }
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="auth-container">
+    <h2>Login</h2>
+    <form method="POST">
+        <label>Username</label>
+        <input type="text" name="username" required>
+
+        <label>Password</label>
+        <input type="password" name="password" required>
+
+        <button type="submit" class="primary-btn">Login</button>
+    </form>
+    <div style="margin-top: 15px; text-align: center;">
+        <p><a href="{{ url_for('forgot_password') }}" style="color: #667eea; font-size: 0.9rem;">Forgot Password?</a>
+        </p>
+        <p>Don't have an account? <a href="{{ url_for('signup_page') }}">Sign up</a></p>
+    </div>
+</div>
+{% endblock %}

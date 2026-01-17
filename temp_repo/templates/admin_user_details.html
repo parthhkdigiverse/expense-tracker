@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="dashboard-header">
+    <h2>User Details: <span style="color: #4a90e2;">{{ target_username }}</span></h2>
+    <div class="summary-card">
+        <h3>Total Expense</h3>
+        <p class="amount">₹{{ total }}</p>
+    </div>
+</div>
+
+<div class="actions">
+    <a href="{{ url_for('admin_dashboard') }}" class="cancel-btn">← Back to Admin Panel</a>
+</div>
+
+<h3>Transaction History</h3>
+<div class="expense-list">
+    {% if expenses %}
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th>Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in expenses %}
+            <tr>
+                <td>{{ e[1] }}</td>
+                <td><span class="category-tag">{{ e[2] }}</span></td>
+                <td>{{ e[4] }}</td>
+                <td class="amount-cell">₹{{ e[3] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="no-data">This user has no expenses.</p>
+    {% endif %}
+</div>
+{% endblock %}

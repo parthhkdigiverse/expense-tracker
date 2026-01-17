@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h2>Expense Reports</h2>
+</div>
+
+<div class="charts-container">
+    <div class="chart-wrapper">
+        <h3>Category Distribution</h3>
+        <canvas id="categoryChart" data-labels='{{ pie_labels | tojson | forceescape }}'
+            data-values='{{ pie_values | tojson | forceescape }}'>
+        </canvas>
+    </div>
+
+    <div class="chart-wrapper">
+        <h3>Monthly Trends</h3>
+        <canvas id="monthlyChart" data-labels='{{ bar_labels | tojson | forceescape }}'
+            data-values='{{ bar_values | tojson | forceescape }}'>
+        </canvas>
+    </div>
+</div>
+
+<script>
+    // Helper to parse data attributes safely
+    function getData(id, type) {
+        const el = document.getElementById(id);
+        return JSON.parse(el.getAttribute('data-' + type));
+    }
+
+    // Category Pie Chart
+    const catCtx = document.getElementById('categoryChart').getContext('2d');
+    new Chart(catCtx, {
+        type: 'pie',
+        data: {
+            labels: getData('categoryChart', 'labels'),
+            datasets: [{
+                data: getData('categoryChart', 'values'),
+                backgroundColor: [
+                    '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+
+    // Monthly Bar Chart
+    const monthCtx = document.getElementById('monthlyChart').getContext('2d');
+    new Chart(monthCtx, {
+        type: 'bar',
+        data: {
+            labels: getData('monthlyChart', 'labels'),
+            datasets: [{
+                label: 'Total Expense',
+                data: getData('monthlyChart', 'values'),
+                backgroundColor: '#36A2EB'
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+</script>
+{% endblock %}

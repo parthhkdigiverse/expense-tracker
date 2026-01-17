@@ -1,0 +1,21 @@
+{% extends "base.html" %} {% block content %}
+<div class="auth-wrapper">
+  <div class="auth-card">
+    <h1>Welcome Back</h1>
+    <p>Sign in with your email to access your expenses.</p>
+    <form action="{{ url_for('login') }}" method="POST">
+      <div class="form-group">
+        <label for="email">Email Address</label>
+        <input
+          type="email"
+          id="email"
+          name="email"
+          placeholder="you@example.com"
+          required
+        />
+      </div>
+      <button type="submit" class="btn-primary">Send Magic Link</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

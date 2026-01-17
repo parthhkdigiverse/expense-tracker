@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="auth-container">
+    <h2>Sign Up</h2>
+    <form method="POST">
+        <label>Username</label>
+        <input type="text" name="username" required>
+
+        <label>Password</label>
+        <input type="password" name="password" required>
+
+        <label>Security Question</label>
+        <select name="security_question" required>
+            <option value="" disabled selected>Select a question...</option>
+            <option value="What is your pet's name?">What is your pet's name?</option>
+            <option value="What is your mother's maiden name?">What is your mother's maiden name?</option>
+            <option value="What city were you born in?">What city were you born in?</option>
+            <option value="What is your favorite food?">What is your favorite food?</option>
+        </select>
+
+        <label>Answer</label>
+        <input type="text" name="security_answer" placeholder="Your answer" required>
+
+        <button type="submit" class="primary-btn">Create Account</button>
+    </form>
+    <p>Already have an account? <a href="{{ url_for('login_page') }}">Login</a></p>
+</div>
+{% endblock %}

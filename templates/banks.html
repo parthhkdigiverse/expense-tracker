@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="dashboard-header">
+    <div class="header-content">
+        <h1>Bank Accounts</h1>
+        <div class="header-actions">
+        <button onclick="document.getElementById('add-bank-modal').style.display='block'" class="btn-primary">+ Add New Account</button>
+    </div>
+</div>
+</div>
+
+<div class="dashboard-section card">
+    <div class="bank-grid">
+        {% for bank in banks %}
+        <div class="bank-card">
+            <div class="bank-info">
+                <h3>{{ bank.bank_name }}</h3>
+                <p>Acct: {{ bank.account_number }}</p>
+                <p>IFSC: {{ bank.ifsc_code }}</p>
+            </div>
+            <a href="{{ url_for('delete_bank', bank_id=bank.id) }}" class="btn-danger btn-sm" onclick="return confirm('Remove this bank account?')">Remove</a>
+        </div>
+        {% else %}
+        <p>No bank accounts added yet.</p>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Add Bank Modal -->
+<div id="add-bank-modal" class="modal">
+    <div class="modal-content">
+        <span onclick="document.getElementById('add-bank-modal').style.display='none'" class="close">&times;</span>
+        <h2>Add Bank Account</h2>
+        <form action="{{ url_for('add_bank') }}" method="POST">
+            <div class="form-group">
+                <label>Bank Name</label>
+                <input type="text" name="bank_name" placeholder="e.g. HDFC Bank" required>
+            </div>
+            <div class="form-group">
+                <label>Account Number</label>
+                <input type="text" name="account_number" placeholder="XXXX-XXXX-XXXX" required>
+            </div>
+            <div class="form-group">
+                <label>IFSC Code</label>
+                <input type="text" name="ifsc_code" placeholder="HDFC0001234" required>
+            </div>
+            <button type="submit" class="btn-primary">Add Account</button>
+        </form>
+    </div>
+</div>
+
+<script>
+    window.onclick = function(event) {
+        if (event.target.className === 'modal') {
+            event.target.style.display = "none";
+        }
+    }
+</script>
+{% endblock %}

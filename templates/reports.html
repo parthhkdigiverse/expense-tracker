@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="dashboard-header">
+    <h1>Expense Reports</h1>
+    <a href="{{ url_for('dashboard') }}" class="btn-secondary">Back to Dashboard</a>
+</div>
+
+<div class="grid-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem; margin-top: 2rem;">
+    <!-- Pie Chart -->
+    <div class="card">
+        <h3>Expenses by Category</h3>
+        <canvas id="categoryChart"></canvas>
+    </div>
+    
+    <!-- Bar Chart -->
+    <div class="card">
+        <h3>Monthly Expenses</h3>
+        <canvas id="monthlyChart"></canvas>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // Category Pie Chart
+    const ctxPie = document.getElementById('categoryChart').getContext('2d');
+    new Chart(ctxPie, {
+        type: 'pie',
+        data: {
+            labels: {{ pie_labels | tojson }},
+            datasets: [{
+                data: {{ pie_values | tojson }},
+                backgroundColor: [
+                    '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CBCF', '#E7E9ED', '#71B37C'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'bottom' }
+            }
+        }
+    });
+
+    // Monthly Bar Chart
+    const ctxBar = document.getElementById('monthlyChart').getContext('2d');
+    new Chart(ctxBar, {
+        type: 'bar',
+        data: {
+            labels: {{ bar_labels | tojson }},
+            datasets: [{
+                label: 'Total Expenses',
+                data: {{ bar_values | tojson }},
+                backgroundColor: '#36A2EB'
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: { beginAtZero: true }
+            }
+        }
+    });
+</script>
+
+<style>
+    .card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    h3 { margin-top: 0; margin-bottom: 1rem; color: #333; }
+</style>
+{% endblock %}
