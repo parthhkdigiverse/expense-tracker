@@ -32,6 +32,12 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 else:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+def check_db_config():
+    if not supabase:
+        flash("Critical Error: Database configuration missing. Please check server logs.", "error")
+        return False
+    return True
+
 def get_db(token=None):
     if token:
         return create_client(SUPABASE_URL, SUPABASE_KEY, options=ClientOptions(headers={"Authorization": f"Bearer {token}"}))
@@ -46,7 +52,28 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        if not check_db_config():
+            return render_template('login.html')
+
         email = request.form.get('email')
+        
+        # TESTER BYPASS
+        if email == 'tester@pocket.app':
+            try:
+                # Use a hardcoded password for the tester account
+                # Ensure this user exists in Supabase Auth with this password
+                res = supabase.auth.sign_in_with_password({
+                    "email": email,
+                    "password": "testerpassword123"
+                })
+                session['user'] = res.user.id
+                session['access_token'] = res.session.access_token
+                flash('Tester login successful!', 'success')
+                return redirect(url_for('dashboard'))
+            except Exception as e:
+                flash(f"Tester login failed: {str(e)}", 'error')
+                return render_template('login.html')
+
         try:
             redirect_url = url_for('verify', _external=True)
             print(f"DEBUG: Redirect URL generated: {redirect_url}")
