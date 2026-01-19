@@ -105,12 +105,13 @@ def generate_pdf_report(expenses, username, total=None):
     pdf.cell(40, 10, f"{net_total:.2f}", 1, 1, 'R')
     pdf.set_text_color(0, 0, 0)
 
-    # Ensure reports directory exists
-    if not os.path.exists('static/reports'):
-        os.makedirs('static/reports')
-
-    # Use static/reports to serve if needed, or just temp
-    filename = f"static/reports/Report_{username}_{datetime.date.today()}.pdf"
+    # Use /tmp for serverless/read-only environments
+    import tempfile
+    
+    # Create a temp file path
+    temp_dir = tempfile.gettempdir()
+    filename = os.path.join(temp_dir, f"Report_{username}_{datetime.date.today()}.pdf")
+    
     pdf.output(filename)
     return filename
 
