@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file, make_response
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 import os
 import datetime
 import io
@@ -31,6 +31,11 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     supabase = None
 else:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def get_db(token=None):
+    if token:
+        return create_client(SUPABASE_URL, SUPABASE_KEY, options=ClientOptions(headers={"Authorization": f"Bearer {token}"}))
+    return supabase
 
 @app.route('/')
 def index():
@@ -112,17 +117,21 @@ def dashboard():
                  flash(f"{added} recurring expenses added.", 'info')
              session['recurring_checked'] = True
 
-        supabase.postgrest.auth(token)
-        profile_res = supabase.table('profiles').select('*').eq('id', session['user']).execute()
+        # supabase.postgrest.auth(token)
+        profile_res = get_db(token).table('profiles').select('*').eq('id', session['user']).execute() # RLS might allow read if public, but for update we need auth. Wait, profile read usually needs auth.
+        # Let's try .auth(token)
+        profile_res = get_db(token).table('profiles').select('*').eq('id', session['user']).execute()
         profile = profile_res.data[0] if profile_res.data else {}
         
         # Recent Expenses (Top 5)
-        expenses_res = supabase.table('expenses').select('*').eq('user_id', session['user']).order('date', desc=True).limit(5).execute()
+        expenses_res = get_db(token).table('expenses').select('*').eq('user_id', session['user']).order('date', desc=True).limit(5).execute()
         expenses = expenses_res.data
         
-        # Calculate Logic
-        all_exp_res = supabase.table('expenses').select('amount').eq('user_id', session['user']).execute()
-        total_expense = sum(ex['amount'] for ex in all_exp_res.data)
+        # Calculate Logic - Expenses Only for "Total Spent"
+        all_tx_res = get_db(token).table('expenses').select('amount, type').eq('user_id', session['user']).execute()
+        total_expense = sum(ex['amount'] for ex in all_tx_res.data if ex['type'] == 'expense')
+        total_income = sum(ex['amount'] for ex in all_tx_res.data if ex['type'] == 'income')
+        
         budget = float(profile.get('budget', 0) or 0)
         
         percentage = 0
@@ -139,13 +148,14 @@ def dashboard():
         profile = {}
         expenses = []
         total_expense = 0
+        total_income = 0
         budget = 0
         percentage = 0
         progress_class = ""
 
     return render_template('dashboard.html', 
                            profile=profile,
-                           expenses=expenses, total=total_expense, 
+                           expenses=expenses, total=total_expense, total_income=total_income,
                            budget=budget, percentage=percentage, 
                            progress_class=progress_class)
 
@@ -155,22 +165,38 @@ def expenses():
     
     try:
         token = session.get('access_token')
-        supabase.postgrest.auth(token)
-        
+
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
+        category = request.args.get('category')
+        bank_id = request.args.get('bank_id') # New Filter
         
-        exp_query = supabase.table('expenses').select('*').eq('user_id', session['user']).order('date', desc=True)
+        # Query with Join to get Bank Name
+        # Syntax for join: select('*, bank_accounts(bank_name)')
+        exp_query = get_db(token).table('expenses').select('*, bank_accounts(bank_name)').eq('user_id', session['user']).order('date', desc=True)
+        
         if start_date: exp_query = exp_query.gte('date', start_date)
         if end_date: exp_query = exp_query.lte('date', end_date)
+        if category and category != 'All': exp_query = exp_query.eq('category', category)
+        if bank_id:
+             if bank_id == 'Cash':
+                 exp_query = exp_query.is_('bank_account_id', 'null')
+             elif bank_id != 'All':
+                 exp_query = exp_query.eq('bank_account_id', bank_id)
         
         expenses_res = exp_query.execute()
         expenses = expenses_res.data
+        
+        # Fetch Banks for Filter Dropdown
+        banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute()
+        banks = banks_res.data
+        
     except Exception as e:
         flash(f"Error fetching expenses: {str(e)}", 'error')
         expenses = []
+        banks = []
         
-    return render_template('expenses.html', expenses=expenses)
+    return render_template('expenses.html', expenses=expenses, banks=banks)
 
 @app.route('/banks')
 def banks():
@@ -178,8 +204,8 @@ def banks():
     
     try:
         token = session.get('access_token')
-        supabase.postgrest.auth(token)
-        res = supabase.table('bank_accounts').select('*').eq('user_id', session['user']).execute()
+
+        res = get_db(token).table('bank_accounts').select('*').eq('user_id', session['user']).execute()
         banks = res.data
     except Exception as e:
         flash(f"Error fetching banks: {str(e)}", 'error')
@@ -202,8 +228,8 @@ def profile():
         
         try:
             # Pass the user's JWT to authorize the request against RLS policies
-            supabase.postgrest.auth(token)
-            supabase.table('profiles').update({
+    
+            get_db(token).table('profiles').update({
                 'full_name': full_name,
                 'website': website,
                 'avatar_url': avatar_url
@@ -216,8 +242,8 @@ def profile():
 
     # Fetch existing profile
     try:
-        supabase.postgrest.auth(token)
-        res = supabase.table('profiles').select('*').eq('id', session['user']).execute()
+
+        res = get_db(token).table('profiles').select('*').eq('id', session['user']).execute()
         profile = res.data[0] if res.data else {}
     except:
         profile = {}
@@ -234,7 +260,7 @@ def add_bank():
 
     try:
         token = session.get('access_token')
-        supabase.postgrest.auth(token)
+
         
         data = {
             'user_id': session['user'],
@@ -242,7 +268,7 @@ def add_bank():
             'account_number': account_number,
             'ifsc_code': ifsc_code
         }
-        supabase.table('bank_accounts').insert(data).execute()
+        get_db(token).table('bank_accounts').insert(data).execute()
         flash('Bank account added!', 'success')
     except Exception as e:
         flash(f"Error adding bank: {str(e)}", 'error')
@@ -256,8 +282,8 @@ def delete_bank(bank_id):
     
     try:
         token = session.get('access_token')
-        supabase.postgrest.auth(token)
-        supabase.table('bank_accounts').delete().eq('id', bank_id).eq('user_id', session['user']).execute()
+
+        get_db(token).table('bank_accounts').delete().eq('id', bank_id).eq('user_id', session['user']).execute()
         flash('Bank account removed.', 'info')
     except Exception as e:
         flash(f"Error deleting bank: {str(e)}", 'error')
@@ -289,11 +315,11 @@ def check_recurring_expenses(user_id, token):
     Adapted for Supabase.
     """
     try:
-        supabase.postgrest.auth(token)
+
         today = datetime.date.today().isoformat()
         
         # Fetch due items
-        res = supabase.table('recurring_expenses').select('*').eq('user_id', user_id).lte('next_due_date', today).execute()
+        res = get_db(token).table('recurring_expenses').select('*').eq('user_id', user_id).lte('next_due_date', today).execute()
         due_items = res.data
         
         count = 0
@@ -307,14 +333,14 @@ def check_recurring_expenses(user_id, token):
                 'amount': item['amount'],
                 'description': desc
             }
-            supabase.table('expenses').insert(expense_data).execute()
+            get_db(token).table('expenses').insert(expense_data).execute()
             count += 1
             
             # Update next due date (+30 days)
             d_obj = datetime.datetime.strptime(item['next_due_date'], "%Y-%m-%d")
             new_due = (d_obj + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
             
-            supabase.table('recurring_expenses').update({'next_due_date': new_due}).eq('id', item['id']).execute()
+            get_db(token).table('recurring_expenses').update({'next_due_date': new_due}).eq('id', item['id']).execute()
             
         return count
     except Exception as e:
@@ -328,8 +354,8 @@ def set_budget():
     amount = request.form.get('budget')
     try:
         token = session.get('access_token')
-        supabase.postgrest.auth(token)
-        supabase.table('profiles').update({'budget': float(amount)}).eq('id', session['user']).execute()
+
+        get_db(token).table('profiles').update({'budget': float(amount)}).eq('id', session['user']).execute()
         flash('Budget updated successfully!', 'success')
     except Exception as e:
         flash(f"Error updating budget: {str(e)}", 'error')
@@ -340,6 +366,8 @@ def set_budget():
 def add_expense():
     if 'user' not in session: return redirect(url_for('login'))
     
+    token = session.get('access_token')
+
     if request.method == 'POST':
         date = request.form['date']
         category = request.form['category']
@@ -347,26 +375,27 @@ def add_expense():
         description = request.form['description']
         is_recurring = request.form.get('is_recurring')
         
+        # New Fields
+        tx_type = request.form.get('type', 'expense')
+        bank_account_id = request.form.get('bank_account_id') or None
+        
         try:
-            token = session.get('access_token')
-            supabase.postgrest.auth(token)
-            
-            # Add Expense
+            # Add Expense/Income
             data = {
                 'user_id': session['user'],
                 'date': date,
                 'category': category,
                 'amount': float(amount),
-                'description': description
+                'description': description,
+                'type': tx_type,
+                'bank_account_id': bank_account_id
             }
-            supabase.table('expenses').insert(data).execute()
+            get_db(token).table('expenses').insert(data).execute()
             
-            msg = "Expense added successfully!"
+            msg = f"{tx_type.title()} added successfully!"
             
             if is_recurring:
                 # Add Recurring
-                # Next due date logic: +30 days from now? Or from date provided?
-                # Remote repo used date provided as start.
                 d_obj = datetime.datetime.strptime(date, "%Y-%m-%d")
                 next_due = (d_obj + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
                 
@@ -377,15 +406,22 @@ def add_expense():
                     'description': description,
                     'next_due_date': next_due
                 }
-                supabase.table('recurring_expenses').insert(rec_data).execute()
+                get_db(token).table('recurring_expenses').insert(rec_data).execute()
                 msg += " (Set to recur monthly)"
             
             flash(msg, 'success')
             return redirect(url_for('expenses'))
         except Exception as e:
-            flash(f"Error adding expense: {str(e)}", 'error')
+            flash(f"Error adding {tx_type}: {str(e)}", 'error')
             
-    return render_template('add.html', today=datetime.date.today(), expense=None)
+    # GET - Fetch Banks
+    try:
+        banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute()
+        banks = banks_res.data
+    except:
+        banks = []
+
+    return render_template('add.html', today=datetime.date.today(), expense=None, banks=banks)
 
 @app.route('/edit_expense/<expense_id>', methods=['GET', 'POST'])
 def edit_expense(expense_id):
@@ -398,33 +434,41 @@ def edit_expense(expense_id):
         category = request.form['category']
         amount = request.form['amount']
         description = request.form['description']
+        tx_type = request.form.get('type', 'expense')
+        bank_account_id = request.form.get('bank_account_id') or None
         
         try:
-            supabase.postgrest.auth(token)
-            supabase.table('expenses').update({
+    
+            get_db(token).table('expenses').update({
                 'date': date,
                 'category': category,
                 'amount': float(amount),
-                'description': description
+                'description': description,
+                'type': tx_type,
+                'bank_account_id': bank_account_id
             }).eq('id', expense_id).execute()
-            flash('Expense updated!', 'success')
+            flash('Transaction updated!', 'success')
             return redirect(url_for('expenses'))
         except Exception as e:
-            flash(f"Error updating expense: {str(e)}", 'error')
+            flash(f"Error updating transaction: {str(e)}", 'error')
             
     # GET - Fetch expense
     try:
-        supabase.postgrest.auth(token)
-        res = supabase.table('expenses').select('*').eq('id', expense_id).execute()
+        res = get_db(token).table('expenses').select('*').eq('id', expense_id).execute()
         expense = res.data[0] if res.data else None
+        
+        # Fetch Banks
+        banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute()
+        banks = banks_res.data
     except:
         expense = None
+        banks = []
         
     if not expense:
-        flash('Expense not found', 'error')
+        flash('Transaction not found', 'error')
         return redirect(url_for('dashboard'))
         
-    return render_template('add.html', expense=expense, today=datetime.date.today())
+    return render_template('add.html', expense=expense, banks=banks, today=datetime.date.today())
 
 @app.route('/delete_expense/<expense_id>')
 def delete_expense(expense_id):
@@ -432,8 +476,8 @@ def delete_expense(expense_id):
     
     try:
         token = session.get('access_token')
-        supabase.postgrest.auth(token)
-        supabase.table('expenses').delete().eq('id', expense_id).execute()
+
+        get_db(token).table('expenses').delete().eq('id', expense_id).execute()
         flash('Expense deleted.', 'info')
     except Exception as e:
         flash(f"Error deleting expense: {str(e)}", 'error')
@@ -446,44 +490,61 @@ def reports():
     
     try:
         token = session.get('access_token')
-        supabase.postgrest.auth(token)
+
         
-        # Get all expenses
-        res = supabase.table('expenses').select('*').eq('user_id', session['user']).execute()
-        expenses = res.data
+        # Get all transactions
+        res = get_db(token).table('expenses').select('*').eq('user_id', session['user']).execute()
+        transactions = res.data
         
-        # Aggregate for Pie Chart (Category)
-        cat_data = {}
-        for ex in expenses:
-            cat = ex['category']
-            amt = ex['amount']
-            cat_data[cat] = cat_data.get(cat, 0) + amt
-            
-        pie_labels = list(cat_data.keys())
-        pie_values = list(cat_data.values())
+        # Aggregate for Pie Chart (Expense Categories)
+        exp_cat_data = {}
+        inc_cat_data = {}
         
-        # Aggregate for Bar Chart (Monthly)
+        # Monthly Data: { 'YYYY-MM': {'income': 0, 'expense': 0} }
         monthly_data = {}
-        for ex in expenses:
-            # Date format YYYY-MM-DD
-            month = ex['date'][:7] # YYYY-MM
-            amt = ex['amount']
-            monthly_data[month] = monthly_data.get(month, 0) + amt
+        
+        for tx in transactions:
+            cat = tx['category']
+            amt = tx['amount']
+            month = tx['date'][:7] # YYYY-MM
             
-        # Sort months
+            if month not in monthly_data:
+                monthly_data[month] = {'income': 0, 'expense': 0}
+            
+            if tx['type'] == 'income':
+                inc_cat_data[cat] = inc_cat_data.get(cat, 0) + amt
+                monthly_data[month]['income'] += amt
+            else:
+                exp_cat_data[cat] = exp_cat_data.get(cat, 0) + amt
+                monthly_data[month]['expense'] += amt
+            
+        # Expense Pie Data
+        exp_pie_labels = list(exp_cat_data.keys())
+        exp_pie_values = list(exp_cat_data.values())
+        
+        # Income Pie Data
+        inc_pie_labels = list(inc_cat_data.keys())
+        inc_pie_values = list(inc_cat_data.values())
+        
+        # Bar Chart Data
         bar_labels = sorted(monthly_data.keys())
-        bar_values = [monthly_data[m] for m in bar_labels]
+        bar_exp = [monthly_data[m]['expense'] for m in bar_labels]
+        bar_inc = [monthly_data[m]['income'] for m in bar_labels]
         
     except Exception as e:
         flash(f"Error generating reports: {str(e)}", 'error')
-        pie_labels = []
-        pie_values = []
+        exp_pie_labels = []
+        exp_pie_values = []
+        inc_pie_labels = []
+        inc_pie_values = []
         bar_labels = []
-        bar_values = []
+        bar_exp = []
+        bar_inc = []
         
     return render_template('reports.html', 
-                            pie_labels=pie_labels, pie_values=pie_values,
-                            bar_labels=bar_labels, bar_values=bar_values)
+                            exp_pie_labels=exp_pie_labels, exp_pie_values=exp_pie_values,
+                            inc_pie_labels=inc_pie_labels, inc_pie_values=inc_pie_values,
+                            bar_labels=bar_labels, bar_exp=bar_exp, bar_inc=bar_inc)
 
 @app.route('/export')
 def export_csv():
@@ -491,8 +552,8 @@ def export_csv():
     
     try:
         token = session.get('access_token')
-        supabase.postgrest.auth(token)
-        res = supabase.table('expenses').select('*').eq('user_id', session['user']).execute()
+
+        res = get_db(token).table('expenses').select('*').eq('user_id', session['user']).execute()
         expenses = res.data
         
         si = io.StringIO()
@@ -516,19 +577,17 @@ def export_pdf_route():
     
     try:
         token = session.get('access_token')
-        supabase.postgrest.auth(token)
+
         
         # Get data
-        expenses_res = supabase.table('expenses').select('*').eq('user_id', session['user']).execute()
+        expenses_res = get_db(token).table('expenses').select('*').eq('user_id', session['user']).execute()
         expenses = expenses_res.data
         
         # Get user profile name
-        prof_res = supabase.table('profiles').select('full_name').eq('id', session['user']).execute()
+        prof_res = get_db(token).table('profiles').select('full_name').eq('id', session['user']).execute()
         username = prof_res.data[0]['full_name'] if prof_res.data else "User"
         
-        total = sum(d['amount'] for d in expenses)
-        
-        pdf_path = generate_pdf_report(expenses, username, total)
+        pdf_path = generate_pdf_report(expenses, username)
         return send_file(pdf_path, as_attachment=True)
     except Exception as e:
         flash(f"Error generating PDF: {str(e)}", 'error')
@@ -555,20 +614,18 @@ def email_report_route():
 
     try:
         token = session.get('access_token')
-        supabase.postgrest.auth(token)
+
         
-        expenses_res = supabase.table('expenses').select('*').eq('user_id', session['user']).execute()
+        expenses_res = get_db(token).table('expenses').select('*').eq('user_id', session['user']).execute()
         expenses = expenses_res.data
         
-        prof_res = supabase.table('profiles').select('full_name').eq('id', session['user']).execute()
+        prof_res = get_db(token).table('profiles').select('full_name').eq('id', session['user']).execute()
         username = prof_res.data[0]['full_name'] if prof_res.data else "User"
         
-        total = sum(d['amount'] for d in expenses)
+        pdf_path = generate_pdf_report(expenses, username)
         
-        pdf_path = generate_pdf_report(expenses, username, total)
-        
-        subject = f"Monthly Expense Report for {username}"
-        body = f"Hello {username},\n\nPlease find attached your expense report.\n\nTotal Expenses: {total}\n\nRegards,\nPocket Expense Tracker"
+        subject = f"Monthly Transaction Report for {username}"
+        body = f"Hello {username},\n\nPlease find attached your monthly transaction report, including both income and expenses.\n\nRegards,\nPocket Expense Tracker"
         
         success, msg = send_email_report(mail, app, email, subject, body, pdf_path)
         if success:

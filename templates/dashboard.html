@@ -17,6 +17,13 @@
         <div style="margin-top: 0.5rem; font-size: 0.8125rem; color: var(--text-tertiary);">This Month</div>
     </div>
 
+    <!-- Total Income -->
+    <div class="stat-card">
+        <span class="stat-title">Total Income</span>
+        <span class="stat-value" style="color: var(--accent-success);">₹{{ total_income }}</span>
+        <div style="margin-top: 0.5rem; font-size: 0.8125rem; color: var(--text-tertiary);">This Month</div>
+    </div>
+
     <!-- Budget -->
     <div class="stat-card">
         <div style="display: flex; justify-content: space-between; align-items: start;">
@@ -33,12 +40,13 @@
     <div class="stat-card">
         <span class="stat-title">Remaining</span>
         {% set remaining = budget - total %}
-        <span class="stat-value" style="color: {% if remaining < 0 %}var(--accent-danger){% else %}var(--accent-success){% endif %};">
-            ₹{{ remaining }}
-        </span>
-        <div style="margin-top: 0.5rem; font-size: 0.8125rem; color: {% if remaining < 0 %}var(--accent-danger){% else %}var(--text-tertiary){% endif %};">
-            {% if remaining < 0 %}Over Budget{% else %}Safe to spend{% endif %}
-        </div>
+        {% if remaining < 0 %}
+            <span class="stat-value text-danger">₹{{ remaining }}</span>
+            <div class="stat-sub text-danger">Over Budget</div>
+        {% else %}
+            <span class="stat-value text-success">₹{{ remaining }}</span>
+            <div class="stat-sub text-tertiary">Safe to spend</div>
+        {% endif %}
     </div>
 </div>
 
@@ -64,7 +72,9 @@
                     <tr>
                         <td style="padding: 0.75rem 1.5rem;">{{ expense.date | format_date }}</td>
                         <td style="padding: 0.75rem 1.5rem;"><span class="badge">{{ expense.category }}</span></td>
-                        <td class="amount-cell text-expense" style="padding: 0.75rem 1.5rem;">-₹{{ expense.amount }}</td>
+                        <td class="amount-cell {% if expense.type == 'income' %}text-income{% else %}text-expense{% endif %}" style="padding: 0.75rem 1.5rem;">
+                            {{ '+' if expense.type == 'income' else '-' }}₹{{ expense.amount }}
+                        </td>
                     </tr>
                     {% else %}
                     <tr>
