@@ -58,8 +58,9 @@ create or replace trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- Add budget column to profiles
+-- Add budget and currency columns to profiles
 alter table public.profiles add column if not exists budget numeric default 0;
+alter table public.profiles add column if not exists currency text default '₹';
 
 -- Create expenses table
 create table public.expenses (

@@ -13,27 +13,29 @@
     <!-- Total Spent -->
     <div class="stat-card">
         <span class="stat-title">Total Spent</span>
-        <span class="stat-value">₹{{ total }}</span>
+        <span class="stat-value">{{ currency }}{{ total }}</span>
         <div style="margin-top: 0.5rem; font-size: 0.8125rem; color: var(--text-tertiary);">This Month</div>
     </div>
 
     <!-- Total Income -->
     <div class="stat-card">
         <span class="stat-title">Total Income</span>
-        <span class="stat-value" style="color: var(--accent-success);">₹{{ total_income }}</span>
+        <span class="stat-value" style="color: var(--accent-success);">{{ currency }}{{ total_income }}</span>
         <div style="margin-top: 0.5rem; font-size: 0.8125rem; color: var(--text-tertiary);">This Month</div>
     </div>
 
-    <!-- Budget -->
+    <!-- Budget Card -->
     <div class="stat-card">
         <div style="display: flex; justify-content: space-between; align-items: start;">
             <span class="stat-title">Monthly Budget</span>
-            <button onclick="document.getElementById('budget-modal').style.display='block'" style="background:none; border:none; color: var(--brand-start); cursor: pointer; font-size: 0.8rem; padding: 0;">Edit</button>
+            {% if budget == 0 %}
+            <a href="{{ url_for('profile') }}" style="font-size: 0.75rem; color: var(--brand-start); text-decoration: none;">Set Budget</a>
+            {% else %}
+            <a href="{{ url_for('profile') }}" style="font-size: 0.75rem; color: var(--text-tertiary); text-decoration: none;">Edit</a>
+            {% endif %}
         </div>
-        <span class="stat-value">₹{{ budget }}</span>
-        <div class="progress-bar-container" style="height: 6px; margin-top: 0.75rem;">
-            <div class="progress-bar {{ progress_class }}" style="width: {{ percentage }}%"></div>
-        </div>
+        <span class="stat-value">{{ currency }}{{ budget }}</span>
+        <div style="margin-top: 0.5rem; font-size: 0.8125rem; color: var(--text-tertiary);">Target Limit</div>
     </div>
 
     <!-- Remaining -->
@@ -41,10 +43,10 @@
         <span class="stat-title">Remaining</span>
         {% set remaining = budget - total %}
         {% if remaining < 0 %}
-            <span class="stat-value text-danger">₹{{ remaining }}</span>
+            <span class="stat-value text-danger">{{ currency }}{{ remaining }}</span>
             <div class="stat-sub text-danger">Over Budget</div>
         {% else %}
-            <span class="stat-value text-success">₹{{ remaining }}</span>
+            <span class="stat-value text-success">{{ currency }}{{ remaining }}</span>
             <div class="stat-sub text-tertiary">Safe to spend</div>
         {% endif %}
     </div>
@@ -73,7 +75,7 @@
                         <td style="padding: 0.75rem 1.5rem;">{{ expense.date | format_date }}</td>
                         <td style="padding: 0.75rem 1.5rem;"><span class="badge">{{ expense.category }}</span></td>
                         <td class="amount-cell {% if expense.type == 'income' %}text-income{% else %}text-expense{% endif %}" style="padding: 0.75rem 1.5rem;">
-                            {{ '+' if expense.type == 'income' else '-' }}₹{{ expense.amount }}
+                            {{ '+' if expense.type == 'income' else '-' }}{{ currency }}{{ expense.amount }}
                         </td>
                     </tr>
                     {% else %}

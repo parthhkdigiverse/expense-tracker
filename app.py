@@ -184,7 +184,8 @@ def dashboard():
                            profile=profile,
                            expenses=expenses, total=total_expense, total_income=total_income,
                            budget=budget, percentage=percentage, 
-                           progress_class=progress_class)
+                           progress_class=progress_class,
+                           currency=profile.get('currency', '₹'))
 
 @app.route('/expenses')
 def expenses():
@@ -218,12 +219,16 @@ def expenses():
         banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute()
         banks = banks_res.data
         
+        profile_res = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
+        currency = profile_res.data[0]['currency'] if profile_res.data else '₹'
+        
     except Exception as e:
         flash(f"Error fetching expenses: {str(e)}", 'error')
         expenses = []
         banks = []
+        currency = '₹'
         
-    return render_template('expenses.html', expenses=expenses, banks=banks)
+    return render_template('expenses.html', expenses=expenses, banks=banks, currency=currency)
 
 @app.route('/banks')
 def banks():
@@ -240,6 +245,14 @@ def banks():
         
     return render_template('banks.html', banks=banks)
 
+# Helper to get profile with defaults
+def get_user_profile(token):
+    try:
+        res = get_db(token).table('profiles').select('*').eq('id', session['user']).execute()
+        return res.data[0] if res.data else {}
+    except:
+        return {}
+
 @app.route('/profile', methods=['GET', 'POST'])
 def profile():
     if 'user' not in session:
@@ -250,31 +263,35 @@ def profile():
     
     if request.method == 'POST':
         full_name = request.form.get('full_name')
-        website = request.form.get('website')
         avatar_url = request.form.get('avatar_url')
+        budget_val = request.form.get('budget', 0)
+        currency_val = request.form.get('currency', '₹')
         
         try:
-            # Pass the user's JWT to authorize the request against RLS policies
-    
             get_db(token).table('profiles').update({
                 'full_name': full_name,
-                'website': website,
-                'avatar_url': avatar_url
+                'avatar_url': avatar_url,
+                'budget': float(budget_val),
+                'currency': currency_val
             }).eq('id', session['user']).execute()
             
             flash('Profile updated!', 'success')
-            return redirect(url_for('dashboard'))
+            return redirect(url_for('profile')) # Stay on profile page
         except Exception as e:
             flash(f"Error updating profile: {str(e)}", 'error')
 
-    # Fetch existing profile
+    # Fetch existing profile and email
     try:
-
-        res = get_db(token).table('profiles').select('*').eq('id', session['user']).execute()
-        profile = res.data[0] if res.data else {}
-    except:
+        profile = get_user_profile(token)
+        
+        # Get Email from Supabase Auth
+        u = supabase.auth.get_user(token)
+        email = u.user.email if u and u.user else "Unknown"
+    except Exception as e:
         profile = {}
-    return render_template('profile.html', profile=profile)
+        email = "Unknown"
+        print(f"Error fetching profile/user: {e}")
+    return render_template('profile.html', profile=profile, email=email)
 
 @app.route('/add_bank', methods=['POST'])
 def add_bank():
@@ -441,14 +458,18 @@ def add_expense():
         except Exception as e:
             flash(f"Error adding {tx_type}: {str(e)}", 'error')
             
-    # GET - Fetch Banks
+    # GET - Fetch Banks and Currency
     try:
         banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute()
         banks = banks_res.data
+        
+        prof_res = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
+        currency = prof_res.data[0]['currency'] if prof_res.data else '₹'
     except:
         banks = []
+        currency = '₹'
 
-    return render_template('add.html', today=datetime.date.today(), expense=None, banks=banks)
+    return render_template('add.html', today=datetime.date.today(), expense=None, banks=banks, currency=currency)
 
 @app.route('/edit_expense/<expense_id>', methods=['GET', 'POST'])
 def edit_expense(expense_id):
@@ -495,7 +516,14 @@ def edit_expense(expense_id):
         flash('Transaction not found', 'error')
         return redirect(url_for('dashboard'))
         
-    return render_template('add.html', expense=expense, banks=banks, today=datetime.date.today())
+    # Get Currency
+    try:
+         prof_res = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
+         currency = prof_res.data[0]['currency'] if prof_res.data else '₹'
+    except:
+         currency = '₹'
+         
+    return render_template('add.html', expense=expense, banks=banks, today=datetime.date.today(), currency=currency)
 
 @app.route('/delete_expense/<expense_id>')
 def delete_expense(expense_id):
@@ -558,6 +586,9 @@ def reports():
         bar_exp = [monthly_data[m]['expense'] for m in bar_labels]
         bar_inc = [monthly_data[m]['income'] for m in bar_labels]
         
+        profile_res = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
+        currency = profile_res.data[0]['currency'] if profile_res.data else '₹'
+        
     except Exception as e:
         flash(f"Error generating reports: {str(e)}", 'error')
         exp_pie_labels = []
@@ -567,11 +598,13 @@ def reports():
         bar_labels = []
         bar_exp = []
         bar_inc = []
+        currency = '₹'
         
     return render_template('reports.html', 
                             exp_pie_labels=exp_pie_labels, exp_pie_values=exp_pie_values,
                             inc_pie_labels=inc_pie_labels, inc_pie_values=inc_pie_values,
-                            bar_labels=bar_labels, bar_exp=bar_exp, bar_inc=bar_inc)
+                            bar_labels=bar_labels, bar_exp=bar_exp, bar_inc=bar_inc,
+                            currency=currency)
 
 @app.route('/export')
 def export_csv():
