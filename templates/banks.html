@@ -5,7 +5,7 @@
     <div class="header-content">
         <h1>Bank Accounts</h1>
         <div class="header-actions">
-        <button onclick="document.getElementById('add-bank-modal').style.display='block'" class="btn-primary">+ Add New Account</button>
+        <button onclick="openAddModal()" class="btn-primary">+ Add New Account</button>
     </div>
 </div>
 </div>
@@ -18,8 +18,12 @@
                 <h3>{{ bank.bank_name }}</h3>
                 <p>Acct: {{ bank.account_number }}</p>
                 <p>IFSC: {{ bank.ifsc_code }}</p>
+                <p><strong>Balance: {{ bank.opening_balance }}</strong></p>
             </div>
-            <a href="{{ url_for('delete_bank', bank_id=bank.id) }}" class="btn-danger btn-sm" onclick="return confirm('Remove this bank account?')">Remove</a>
+            <div class="bank-actions">
+                <button class="btn-secondary btn-sm" onclick='openEditModal({{ bank | tojson }})'>Edit</button>
+                <a href="{{ url_for('delete_bank', bank_id=bank.id) }}" class="btn-danger btn-sm" onclick="return confirm('Remove this bank account?')">Remove</a>
+            </div>
         </div>
         {% else %}
         <p>No bank accounts added yet.</p>
@@ -27,33 +31,67 @@
     </div>
 </div>
 
-<!-- Add Bank Modal -->
-<div id="add-bank-modal" class="modal">
+<!-- Add/Edit Bank Modal -->
+<div id="bank-modal" class="modal">
     <div class="modal-content">
-        <span onclick="document.getElementById('add-bank-modal').style.display='none'" class="close">&times;</span>
-        <h2>Add Bank Account</h2>
-        <form action="{{ url_for('add_bank') }}" method="POST">
+        <span onclick="closeModal()" class="close">&times;</span>
+        <h2 id="modal-title">Add Bank Account</h2>
+        <form id="bank-form" action="{{ url_for('add_bank') }}" method="POST">
             <div class="form-group">
                 <label>Bank Name</label>
-                <input type="text" name="bank_name" placeholder="e.g. HDFC Bank" required>
+                <input type="text" id="bank_name" name="bank_name" placeholder="e.g. HDFC Bank" required>
             </div>
             <div class="form-group">
                 <label>Account Number</label>
-                <input type="text" name="account_number" placeholder="XXXX-XXXX-XXXX" required>
+                <input type="text" id="account_number" name="account_number" placeholder="XXXX-XXXX-XXXX" required>
             </div>
             <div class="form-group">
                 <label>IFSC Code</label>
-                <input type="text" name="ifsc_code" placeholder="HDFC0001234" required>
+                <input type="text" id="ifsc_code" name="ifsc_code" placeholder="HDFC0001234" required>
             </div>
-            <button type="submit" class="btn-primary">Add Account</button>
+            <div class="form-group">
+                <label>Opening Balance</label>
+                <input type="number" id="opening_balance" name="opening_balance" placeholder="0.00" step="0.01" value="0">
+            </div>
+            <button type="submit" id="modal-submit-btn" class="btn-primary">Add Account</button>
         </form>
     </div>
 </div>
 
 <script>
+    const modal = document.getElementById('bank-modal');
+    const form = document.getElementById('bank-form');
+    const title = document.getElementById('modal-title');
+    const submitBtn = document.getElementById('modal-submit-btn');
+
+    function openAddModal() {
+        modal.style.display = "block";
+        title.innerText = "Add Bank Account";
+        submitBtn.innerText = "Add Account";
+        form.action = "{{ url_for('add_bank') }}";
+        form.reset();
+        document.getElementById('opening_balance').value = "0";
+    }
+
+    function openEditModal(bank) {
+        modal.style.display = "block";
+        title.innerText = "Edit Bank Account";
+        submitBtn.innerText = "Update Account";
+        form.action = "/edit_bank/" + bank.id;
+        
+        document.getElementById('bank_name').value = bank.bank_name;
+        document.getElementById('account_number').value = bank.account_number;
+        document.getElementById('ifsc_code').value = bank.ifsc_code;
+        document.getElementById('opening_balance').value = bank.opening_balance || 0;
+    }
+
+    function closeModal() {
+        modal.style.display = "none";
+    }
+
     window.onclick = function(event) {
-        if (event.target.className === 'modal') {
-            event.target.style.display = "none";
+        if (event.target === modal) {
+            closeModal();
         }
     }
 </script>

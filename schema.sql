@@ -29,6 +29,7 @@ create table public.bank_accounts (
     bank_name text not null,
     account_number text not null,
     ifsc_code text not null,
+    opening_balance numeric default 0,
     created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -42,6 +43,9 @@ create policy "Users can insert their own bank accounts." on public.bank_account
 
 create policy "Users can delete their own bank accounts." on public.bank_accounts
   for delete using (auth.uid() = user_id);
+
+create policy "Users can update their own bank accounts." on public.bank_accounts
+  for update using (auth.uid() = user_id);
 
 -- Function to handle new user signup
 create or replace function public.handle_new_user()

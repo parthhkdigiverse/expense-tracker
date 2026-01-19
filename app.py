@@ -159,6 +159,11 @@ def dashboard():
         total_expense = sum(ex['amount'] for ex in all_tx_res.data if ex['type'] == 'expense')
         total_income = sum(ex['amount'] for ex in all_tx_res.data if ex['type'] == 'income')
         
+        # Calculate Total Balance (Opening + Income - Expense)
+        banks_res_bal = get_db(token).table('bank_accounts').select('opening_balance').eq('user_id', session['user']).execute()
+        total_opening = sum(float(b.get('opening_balance', 0)) for b in banks_res_bal.data)
+        current_balance = total_opening + total_income - total_expense
+
         budget = float(profile.get('budget', 0) or 0)
         
         percentage = 0
@@ -176,6 +181,7 @@ def dashboard():
         expenses = []
         total_expense = 0
         total_income = 0
+        current_balance = 0
         budget = 0
         percentage = 0
         progress_class = ""
@@ -183,6 +189,7 @@ def dashboard():
     return render_template('dashboard.html', 
                            profile=profile,
                            expenses=expenses, total=total_expense, total_income=total_income,
+                           current_balance=current_balance,
                            budget=budget, percentage=percentage, 
                            progress_class=progress_class,
                            currency=profile.get('currency', '₹'))
@@ -301,6 +308,7 @@ def add_bank():
     bank_name = request.form.get('bank_name')
     account_number = request.form.get('account_number')
     ifsc_code = request.form.get('ifsc_code')
+    opening_balance = request.form.get('opening_balance', 0)
 
     try:
         token = session.get('access_token')
@@ -310,12 +318,39 @@ def add_bank():
             'user_id': session['user'],
             'bank_name': bank_name,
             'account_number': account_number,
-            'ifsc_code': ifsc_code
+            'ifsc_code': ifsc_code,
+            'opening_balance': float(opening_balance)
         }
         get_db(token).table('bank_accounts').insert(data).execute()
         flash('Bank account added!', 'success')
     except Exception as e:
         flash(f"Error adding bank: {str(e)}", 'error')
+    
+    return redirect(url_for('banks'))
+
+@app.route('/edit_bank/<bank_id>', methods=['POST'])
+def edit_bank(bank_id):
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    bank_name = request.form.get('bank_name')
+    account_number = request.form.get('account_number')
+    ifsc_code = request.form.get('ifsc_code')
+    opening_balance = request.form.get('opening_balance', 0)
+
+    try:
+        token = session.get('access_token')
+
+        data = {
+            'bank_name': bank_name,
+            'account_number': account_number,
+            'ifsc_code': ifsc_code,
+            'opening_balance': float(opening_balance)
+        }
+        get_db(token).table('bank_accounts').update(data).eq('id', bank_id).eq('user_id', session['user']).execute()
+        flash('Bank account updated!', 'success')
+    except Exception as e:
+        flash(f"Error updating bank: {str(e)}", 'error')
     
     return redirect(url_for('banks'))
 

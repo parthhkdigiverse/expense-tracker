@@ -44,7 +44,7 @@
                 <span>Profile</span>
             </a>
         </li>
-        <li><a href="{{ url_for('logout') }}" class="btn-danger-link">🚪 Logout</a></li>
+        <li><a href="{{ url_for('logout') }}" class="btn-danger-link" onclick="return confirm('Are you sure you want to logout?');">🚪 Logout</a></li>
     </ul>
 </div>
 
