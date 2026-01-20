@@ -11,7 +11,7 @@
         <h2>{{ 'Edit Expense Details' if expense else 'New Expense Details' }}</h2>
     </div>
     <div class="card-body">
-        <form method="POST">
+        <form method="POST" enctype="multipart/form-data">
             <!-- Transaction Type Toggle -->
             <div class="form-group" style="margin-bottom: 1.5rem;">
                 <label style="display:block; margin-bottom: 0.5rem;">Type</label>
@@ -58,6 +58,11 @@
             <div class="form-group">
                 <label for="description">Description</label>
                 <input type="text" id="description" name="description" value="{{ expense.description if expense else '' }}" placeholder="Dinner, Salary, etc..." required>
+            </div>
+
+            <div class="form-group">
+                <label for="receipt_file">Receipt Photo (Optional)</label>
+                <input type="file" id="receipt_file" name="receipt_file" accept="image/*" class="form-control">
             </div>
             
             {% if not expense %}

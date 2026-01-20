@@ -491,6 +491,28 @@ def add_expense():
         tx_type = request.form.get('type', 'expense')
         bank_account_id = request.form.get('bank_account_id') or None
         
+        # Receipt Upload Logic
+        receipt_url = None
+        if 'receipt_file' in request.files:
+            file = request.files['receipt_file']
+            if file and file.filename != '':
+                try:
+                    file_content = file.read()
+                    file_ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else 'jpg'
+                    file_path = f"{session['user']}/receipt_{int(datetime.datetime.now().timestamp())}.{file_ext}"
+                    
+                    get_db(token).storage.from_('receipts').upload(
+                        file_path,
+                        file_content,
+                        {"content-type": f"image/{file_ext}"}
+                    )
+                    receipt_url = get_db(token).storage.from_('receipts').get_public_url(file_path)
+                except Exception as e:
+                    print(f"Receipt Upload Error: {e}")
+                    # Don't fail the whole transaction, just warn? Or fail? 
+                    # Let's log it and proceed without receipt to avoid losing data, or maybe flash generic error?
+                    # Proceeding is safer for user experience if image fails but data is good.
+        
         try:
             # Add Expense/Income
             data = {
@@ -500,7 +522,8 @@ def add_expense():
                 'amount': float(amount),
                 'description': description,
                 'type': tx_type,
-                'bank_account_id': bank_account_id
+                'bank_account_id': bank_account_id,
+                'receipt_url': receipt_url
             }
             get_db(token).table('expenses').insert(data).execute()
             
