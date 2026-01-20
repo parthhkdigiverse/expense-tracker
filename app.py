@@ -192,33 +192,38 @@ def dashboard():
                            progress_class=progress_class,
                            currency=profile.get('currency', '₹'))
 
+def get_filtered_expenses(token, user_id, args):
+    """
+    Helper function to fetch filtered expenses.
+    """
+    start_date = args.get('start_date')
+    end_date = args.get('end_date')
+    category = args.get('category')
+    bank_id = args.get('bank_id')
+
+    # Query with Join to get Bank Name
+    exp_query = get_db(token).table('expenses').select('*, bank_accounts(bank_name)').eq('user_id', user_id).order('date', desc=True)
+
+    if start_date: exp_query = exp_query.gte('date', start_date)
+    if end_date: exp_query = exp_query.lte('date', end_date)
+    if category and category != 'All': exp_query = exp_query.eq('category', category)
+    if bank_id:
+            if bank_id == 'Cash':
+                exp_query = exp_query.is_('bank_account_id', 'null')
+            elif bank_id != 'All':
+                exp_query = exp_query.eq('bank_account_id', bank_id)
+    
+    expenses_res = exp_query.execute()
+    return expenses_res.data
+
 @app.route('/expenses')
 def expenses():
     if 'user' not in session: return redirect(url_for('login'))
     
     try:
         token = session.get('access_token')
-
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
-        category = request.args.get('category')
-        bank_id = request.args.get('bank_id') # New Filter
         
-        # Query with Join to get Bank Name
-        # Syntax for join: select('*, bank_accounts(bank_name)')
-        exp_query = get_db(token).table('expenses').select('*, bank_accounts(bank_name)').eq('user_id', session['user']).order('date', desc=True)
-        
-        if start_date: exp_query = exp_query.gte('date', start_date)
-        if end_date: exp_query = exp_query.lte('date', end_date)
-        if category and category != 'All': exp_query = exp_query.eq('category', category)
-        if bank_id:
-             if bank_id == 'Cash':
-                 exp_query = exp_query.is_('bank_account_id', 'null')
-             elif bank_id != 'All':
-                 exp_query = exp_query.eq('bank_account_id', bank_id)
-        
-        expenses_res = exp_query.execute()
-        expenses = expenses_res.data
+        expenses = get_filtered_expenses(token, session['user'], request.args)
         
         # Fetch Banks for Filter Dropdown
         banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute()
@@ -731,17 +736,16 @@ def export_pdf_route():
     
     try:
         token = session.get('access_token')
-
         
-        # Get data
-        expenses_res = get_db(token).table('expenses').select('*').eq('user_id', session['user']).execute()
-        expenses = expenses_res.data
+        # Get data filtered by query params
+        expenses = get_filtered_expenses(token, session['user'], request.args)
         
         # Get user profile name
         prof_res = get_db(token).table('profiles').select('full_name').eq('id', session['user']).execute()
         username = prof_res.data[0]['full_name'] if prof_res.data else "User"
         
-        pdf_path = generate_pdf_report(expenses, username)
+        # Pass request.args as filters
+        pdf_path = generate_pdf_report(expenses, username, filters=request.args)
         return send_file(pdf_path, as_attachment=True)
     except Exception as e:
         flash(f"Error generating PDF: {str(e)}", 'error')
@@ -751,13 +755,10 @@ def export_pdf_route():
 def email_report_route():
     if 'user' not in session: return redirect(url_for('login'))
     
-    email = request.form.get('email') # or use logged in email? user session id is uuid, not email.
-    # Supabase auth email is not stored in session currently, typically access_token has email claim.
-    # We can ask user to input email, or fetch from auth if possible (supabase.auth.get_user(token)).
+    email = request.form.get('email')
     
     # If email input not provided, try to get from user profile or auth
     if not email:
-        # Try fetch from auth
         try:
              token = session.get('access_token')
              u = supabase.auth.get_user(token)
@@ -769,17 +770,17 @@ def email_report_route():
     try:
         token = session.get('access_token')
 
-        
-        expenses_res = get_db(token).table('expenses').select('*').eq('user_id', session['user']).execute()
-        expenses = expenses_res.data
+        # Get data filtered by form params (hidden inputs)
+        expenses = get_filtered_expenses(token, session['user'], request.form)
         
         prof_res = get_db(token).table('profiles').select('full_name').eq('id', session['user']).execute()
         username = prof_res.data[0]['full_name'] if prof_res.data else "User"
         
-        pdf_path = generate_pdf_report(expenses, username)
+        # Pass request.form as filters
+        pdf_path = generate_pdf_report(expenses, username, filters=request.form)
         
         subject = f"Monthly Transaction Report for {username}"
-        body = f"Hello {username},\n\nPlease find attached your monthly transaction report, including both income and expenses.\n\nRegards,\nPocket Expense Tracker"
+        body = f"Hello {username},\n\nPlease find attached your transaction report based on your selected filters.\n\nRegards,\nPocket Expense Tracker"
         
         success, msg = send_email_report(mail, app, email, subject, body, pdf_path)
         if success:

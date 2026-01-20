@@ -6,14 +6,14 @@
         <h1>Expenses</h1>
         <div class="header-actions">
 
-            <a href="{{ url_for('export_pdf_route') }}" class="btn-outline">Download PDF</a>
-            <button onclick="document.getElementById('email-modal').style.display='block'" class="btn-outline">Email Report</button>
+            <a href="{{ url_for('export_pdf_route', **dict(request.args)) }}" class="btn-outline">Download PDF</a>
+            <button onclick="openEmailModal()" class="btn-outline">Email Report</button>
             <a href="{{ url_for('add_expense') }}" class="btn-primary">+ Add New</a>
         </div>
     </div>
 </div>
 
-<form method="GET" action="{{ url_for('expenses') }}" class="filter-bar">
+<form method="GET" action="{{ url_for('expenses') }}" class="filter-bar" id="main-filter-form">
     <div class="floating-group">
         <input type="date" id="start_date" name="start_date" value="{{ request.args.get('start_date', '') }}" placeholder=" ">
         <label for="start_date">From Date</label>
@@ -130,20 +130,32 @@
     <div class="modal-content">
         <span onclick="document.getElementById('email-modal').style.display='none'" class="close">&times;</span>
         <h2>Email Report</h2>
-        <form action="{{ url_for('email_report_route') }}" method="POST">
+        <form action="{{ url_for('email_report_route') }}" method="POST" id="email-form">
             <div class="form-group">
                 <label>Email Address</label>
                 <input type="email" name="email" placeholder="Enter email" required>
             </div>
+            <!-- Hidden inputs to pass filters -->
+            <input type="hidden" name="start_date" id="email_start_date" value="{{ request.args.get('start_date', '') }}">
+            <input type="hidden" name="end_date" id="email_end_date" value="{{ request.args.get('end_date', '') }}">
+            <input type="hidden" name="category" id="email_category" value="{{ request.args.get('category', '') }}">
+            <input type="hidden" name="bank_id" id="email_bank_id" value="{{ request.args.get('bank_id', '') }}">
+            
             <button type="submit" class="btn-primary">Send</button>
         </form>
     </div>
 </div>
 
 <script>
+    const emailModal = document.getElementById('email-modal');
+    
+    function openEmailModal() {
+        emailModal.style.display = "block";
+    }
+
     window.onclick = function(event) {
-        if (event.target.className === 'modal') {
-            event.target.style.display = "none";
+        if (event.target === emailModal) {
+            emailModal.style.display = "none";
         }
     }
 </script>
