@@ -274,6 +274,41 @@ def profile():
         budget_val = request.form.get('budget', 0)
         currency_val = request.form.get('currency', '₹')
         
+        if 'avatar_file' in request.files:
+            file = request.files['avatar_file']
+            if file and file.filename != '':
+                try:
+                    # Read file content
+                    file_content = file.read()
+                    file_ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else 'jpg'
+                    file_path = f"{session['user']}/avatar_{int(datetime.datetime.now().timestamp())}.{file_ext}"
+                    
+                    # Upload to Supabase Storage
+                    # Using get_db(token) doesn't give storage access easily with python client typically, 
+                    # usually supabase.storage.from_() represents the service key or anon key client.
+                    # For RLS on storage, we need authenticated client.
+                    
+                    # Correct way with supabase-py:
+                    # res = get_db(token).storage.from_('avatars').upload(file_path, file_content) 
+                    
+                    # Store relative to bucket
+                    res = get_db(token).storage.from_('avatars').upload(
+                        file_path,
+                        file_content,
+                        {"content-type": f"image/{file_ext}"}
+                    )
+                    
+                    # Get Public URL
+                    # The public URL follows pattern: SUPABASE_URL/storage/v1/object/public/avatars/path
+                    # Or client.storage.from_('avatars').get_public_url(file_path)
+                    
+                    public_url = get_db(token).storage.from_('avatars').get_public_url(file_path)
+                    avatar_url = public_url # Update variable to save to DB logic below
+                    
+                except Exception as e:
+                    print(f"Upload Error: {e}")
+                    flash(f"Error uploading image: {str(e)}", 'error')
+
         try:
             get_db(token).table('profiles').update({
                 'full_name': full_name,

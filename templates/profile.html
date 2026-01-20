@@ -6,7 +6,7 @@
 </div>
 <div class="card profile-card" style="max-width: 700px; margin: 0 auto;">
     <div class="card-body">
-        <form action="{{ url_for('profile') }}" method="POST">
+        <form action="{{ url_for('profile') }}" method="POST" enctype="multipart/form-data">
             <!-- Profile Header with Avatar -->
             <div class="profile-header-section">
                 <div class="avatar-container">
@@ -30,10 +30,25 @@
             </div>
 
             <div class="form-group">
-                <label for="avatar_url">Avatar Image URL</label>
-                <input type="url" id="avatar_url" name="avatar_url" value="{{ profile.get('avatar_url', '') }}" placeholder="https://example.com/my-photo.jpg">
-                <small style="color: var(--text-tertiary);">Paste a direct link to an image to update your avatar.</small>
+                <label>Avatar</label>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button type="button" class="btn-secondary" onclick="document.getElementById('avatar_file').click()">Add Photo</button>
+                    <span id="file-name" style="color: var(--text-secondary); font-size: 0.9rem;"></span>
+                </div>
+                <!-- Hidden File Input -->
+                <input type="file" id="avatar_file" name="avatar_file" accept="image/*" style="display: none;" onchange="showFileName(this)">
+                
+                <!-- Hidden Avatar URL to preserve value -->
+                <input type="hidden" id="avatar_url" name="avatar_url" value="{{ profile.get('avatar_url', '') }}">
             </div>
+
+            <script>
+                function showFileName(input) {
+                    if (input.files && input.files[0]) {
+                        document.getElementById('file-name').textContent = input.files[0].name;
+                    }
+                }
+            </script>
             
             <div class="grid-2">
                 <div class="form-group">
