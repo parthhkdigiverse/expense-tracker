@@ -26,7 +26,7 @@
         <select id="filter_category" name="category">
             <option value="" selected disabled></option> <!-- Needed for :valid selector trick -->
             <option value="All">All Categories</option>
-            {% for cat in ['Food', 'Transport', 'Utilities', 'Entertainment', 'Shopping', 'Health', 'Travel', 'Education', 'Salary', 'Freelance', 'Investment', 'Other'] %}
+            {% for cat in categories %}
                 <option value="{{ cat }}" {% if request.args.get('category') == cat %}selected{% endif %}>{{ cat }}</option>
             {% endfor %}
         </select>
@@ -56,6 +56,7 @@
                 <tr>
                     <th>Date</th>
                     <th>Category</th>
+                    <th>Recurring</th>
                     <th>Account</th>
                     <th>Description</th>
                     <th>Amount</th>
@@ -69,6 +70,22 @@
                 <tr>
                     <td style="font-weight: 500;">{{ expense.date | format_date }}</td>
                     <td><span class="badge">{{ expense.category }}</span></td>
+                    <td>
+                        {% if expense.recurring_rule_id %}
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <span style="color: var(--brand-start);" title="Active Recurring">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width: 18px; height: 18px;">
+                                      <path fill-rule="evenodd" d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z" clip-rule="evenodd" />
+                                    </svg>
+                                </span>
+                                <a href="{{ url_for('delete_recurring', recurring_id=expense.recurring_rule_id) }}" class="icon-btn delete" title="Stop Recurring" onclick="return confirm('Stop this recurring expense? Future auto-entries will be cancelled.')" style="padding: 2px 6px; font-size: 0.7em; height: auto;">
+                                    Stop
+                                </a>
+                            </div>
+                        {% else %}
+                            <span style="color: var(--text-tertiary);">-</span>
+                        {% endif %}
+                    </td>
                     <td style="font-size: 0.85rem; color: var(--text-secondary);">
                         {% if expense.bank_accounts %}
                             {{ expense.bank_accounts.bank_name }}

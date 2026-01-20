@@ -220,6 +220,7 @@ def get_filtered_expenses(token, user_id, args):
 def expenses():
     if 'user' not in session: return redirect(url_for('login'))
     
+    categories = DEFAULT_CATEGORIES
     try:
         token = session.get('access_token')
         
@@ -232,13 +233,16 @@ def expenses():
         profile_res = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
         currency = profile_res.data[0]['currency'] if profile_res.data else '₹'
         
+        categories = get_all_categories(token, session['user'])
+        
     except Exception as e:
         flash(f"Error fetching expenses: {str(e)}", 'error')
         expenses = []
         banks = []
         currency = '₹'
+        categories = DEFAULT_CATEGORIES
         
-    return render_template('expenses.html', expenses=expenses, banks=banks, currency=currency)
+    return render_template('expenses.html', expenses=expenses, banks=banks, currency=currency, categories=categories)
 
 @app.route('/banks')
 def banks():
@@ -474,7 +478,8 @@ def check_recurring_expenses(user_id, token):
                 'date': item['next_due_date'],
                 'category': item['category'],
                 'amount': item['amount'],
-                'description': desc
+                'description': desc,
+                'recurring_rule_id': item['id']
             }
             get_db(token).table('expenses').insert(expense_data).execute()
             count += 1
@@ -504,6 +509,70 @@ def set_budget():
         flash(f"Error updating budget: {str(e)}", 'error')
     
     return redirect(url_for('dashboard'))
+
+DEFAULT_CATEGORIES = [
+    'Food', 'Transport', 'Utilities', 'Entertainment', 'Shopping', 
+    'Health', 'Travel', 'Education', 'Salary', 'Freelance', 'Investment', 'Other'
+]
+
+def get_all_categories(token, user_id):
+    """
+    Returns a list of categories (Default + Custom).
+    """
+    try:
+        # Get custom categories from DB
+        res = get_db(token).table('user_categories').select('name').eq('user_id', user_id).execute()
+        custom_cats = [r['name'] for r in res.data]
+        return DEFAULT_CATEGORIES + custom_cats
+    except:
+        return DEFAULT_CATEGORIES
+
+@app.route('/categories')
+def categories():
+    if 'user' not in session: return redirect(url_for('login'))
+    
+    token = session.get('access_token')
+    
+    # We want to show custom categories allowing delete
+    try:
+        res = get_db(token).table('user_categories').select('*').eq('user_id', session['user']).execute()
+        custom_categories = res.data
+    except:
+        custom_categories = []
+        
+    return render_template('categories.html', custom_categories=custom_categories, default_categories=DEFAULT_CATEGORIES)
+
+@app.route('/add_category', methods=['POST'])
+def add_category():
+    if 'user' not in session: return redirect(url_for('login'))
+    
+    name = request.form.get('name')
+    if not name:
+        flash('Category name is required', 'error')
+        return redirect(url_for('categories'))
+        
+    try:
+        token = session.get('access_token')
+        # Check for duplicates? For now just insert
+        get_db(token).table('user_categories').insert({'user_id': session['user'], 'name': name}).execute()
+        flash('Category added!', 'success')
+    except Exception as e:
+        flash(f"Error adding category: {str(e)}", 'error')
+        
+    return redirect(url_for('categories'))
+
+@app.route('/delete_category/<cat_id>')
+def delete_category(cat_id):
+    if 'user' not in session: return redirect(url_for('login'))
+    
+    try:
+        token = session.get('access_token')
+        get_db(token).table('user_categories').delete().eq('id', cat_id).execute()
+        flash('Category deleted.', 'info')
+    except Exception as e:
+        flash(f"Error deleting category: {str(e)}", 'error')
+        
+    return redirect(url_for('categories'))
 
 @app.route('/add_expense', methods=['GET', 'POST'])
 def add_expense():
@@ -545,23 +614,11 @@ def add_expense():
                     # Proceeding is safer for user experience if image fails but data is good.
         
         try:
-            # Add Expense/Income
-            data = {
-                'user_id': session['user'],
-                'date': date,
-                'category': category,
-                'amount': float(amount),
-                'description': description,
-                'type': tx_type,
-                'bank_account_id': bank_account_id,
-                'receipt_url': receipt_url
-            }
-            get_db(token).table('expenses').insert(data).execute()
-            
             msg = f"{tx_type.title()} added successfully!"
+            recurring_id = None
             
             if is_recurring:
-                # Add Recurring
+                # Add Recurring Rule First to get ID
                 d_obj = datetime.datetime.strptime(date, "%Y-%m-%d")
                 next_due = (d_obj + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
                 
@@ -572,8 +629,26 @@ def add_expense():
                     'description': description,
                     'next_due_date': next_due
                 }
-                get_db(token).table('recurring_expenses').insert(rec_data).execute()
+                # Execute and get data to retrieve ID
+                rec_res = get_db(token).table('recurring_expenses').insert(rec_data).execute()
+                if rec_res.data:
+                    recurring_id = rec_res.data[0]['id']
+                    
                 msg += " (Set to recur monthly)"
+
+            # Add Expense/Income
+            data = {
+                'user_id': session['user'],
+                'date': date,
+                'category': category,
+                'amount': float(amount),
+                'description': description,
+                'type': tx_type,
+                'bank_account_id': bank_account_id,
+                'receipt_url': receipt_url,
+                'recurring_rule_id': recurring_id
+            }
+            get_db(token).table('expenses').insert(data).execute()
             
             flash(msg, 'success')
             return redirect(url_for('expenses'))
@@ -581,17 +656,21 @@ def add_expense():
             flash(f"Error adding {tx_type}: {str(e)}", 'error')
             
     # GET - Fetch Banks and Currency
+    categories = DEFAULT_CATEGORIES
     try:
         banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute()
         banks = banks_res.data
         
         prof_res = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
         currency = prof_res.data[0]['currency'] if prof_res.data else '₹'
+        
+        categories = get_all_categories(token, session['user'])
     except:
         banks = []
         currency = '₹'
+        categories = DEFAULT_CATEGORIES
 
-    return render_template('add.html', today=datetime.date.today(), expense=None, banks=banks, currency=currency)
+    return render_template('add.html', today=datetime.date.today(), expense=None, banks=banks, currency=currency, categories=categories)
 
 @app.route('/edit_expense/<expense_id>', methods=['GET', 'POST'])
 def edit_expense(expense_id):
@@ -623,6 +702,7 @@ def edit_expense(expense_id):
             flash(f"Error updating transaction: {str(e)}", 'error')
             
     # GET - Fetch expense
+    categories = DEFAULT_CATEGORIES
     try:
         res = get_db(token).table('expenses').select('*').eq('id', expense_id).execute()
         expense = res.data[0] if res.data else None
@@ -630,9 +710,12 @@ def edit_expense(expense_id):
         # Fetch Banks
         banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute()
         banks = banks_res.data
+        
+        categories = get_all_categories(token, session['user'])
     except:
         expense = None
         banks = []
+        categories = DEFAULT_CATEGORIES
         
     if not expense:
         flash('Transaction not found', 'error')
@@ -645,7 +728,7 @@ def edit_expense(expense_id):
     except:
          currency = '₹'
          
-    return render_template('add.html', expense=expense, banks=banks, today=datetime.date.today(), currency=currency)
+    return render_template('add.html', expense=expense, banks=banks, today=datetime.date.today(), currency=currency, categories=categories)
 
 @app.route('/delete_expense/<expense_id>')
 def delete_expense(expense_id):
@@ -791,7 +874,18 @@ def email_report_route():
     except Exception as e:
          flash(f"Error emailing report: {str(e)}", 'error')
          
-    return redirect(url_for('dashboard'))
+@app.route('/delete_recurring/<recurring_id>')
+def delete_recurring(recurring_id):
+    if 'user' not in session: return redirect(url_for('login'))
+    
+    try:
+        token = session.get('access_token')
+        get_db(token).table('recurring_expenses').delete().eq('id', recurring_id).execute()
+        flash('Recurring rule stopped successfully.', 'info')
+    except Exception as e:
+        flash(f"Error stopping recurring rule: {str(e)}", 'error')
+        
+    return redirect(url_for('expenses'))
 
 if __name__ == '__main__':
     app.run(debug=True)

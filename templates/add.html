@@ -33,7 +33,7 @@
                 <label for="category">Category</label>
                 <select id="category" name="category" required>
                     <option value="" disabled {% if not expense %}selected{% endif %}>Select Category</option>
-                    {% for cat in ['Food', 'Transport', 'Utilities', 'Entertainment', 'Shopping', 'Health', 'Travel', 'Education', 'Salary', 'Freelance', 'Investment', 'Other'] %}
+                    {% for cat in categories %}
                         <option value="{{ cat }}" {% if expense and expense.category == cat %}selected{% endif %}>{{ cat }}</option>
                     {% endfor %}
                 </select>
