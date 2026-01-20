@@ -244,9 +244,35 @@ def banks():
 
         res = get_db(token).table('bank_accounts').select('*').eq('user_id', session['user']).execute()
         banks = res.data
+        
+        # Fetch transactions linked to banks
+        # We fetch all expenses/incomes representing bank transactions
+        tx_res = get_db(token).table('expenses').select('amount, type, bank_account_id').eq('user_id', session['user']).not_.is_('bank_account_id', 'null').execute()
+        transactions = tx_res.data
+        
+        # Calculate current balance for each bank
+        # Start with opening balance
+        for bank in banks:
+            # Initialize with opening balance
+            current_bal = float(bank.get('opening_balance', 0))
+            
+            # Filter transactions for this bank (in-memory filtering for simplicity with small data)
+            bank_txs = [t for t in transactions if t.get('bank_account_id') == bank['id']]
+            
+            for tx in bank_txs:
+                amount = float(tx['amount'])
+                if tx['type'] == 'income':
+                    current_bal += amount
+                elif tx['type'] == 'expense':
+                    current_bal -= amount
+            
+            bank['current_balance'] = current_bal
+            
     except Exception as e:
         flash(f"Error fetching banks: {str(e)}", 'error')
         banks = []
+        import traceback
+        traceback.print_exc()
         
     return render_template('banks.html', banks=banks)
 

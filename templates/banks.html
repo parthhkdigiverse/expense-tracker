@@ -54,9 +54,12 @@
             <div class="bank-card-footer">
                 <div class="balance-group">
                     <span class="balance-label">Opening Balance</span>
-                    <span class="balance-amount">{{ bank.opening_balance }}</span>
+                    <span class="balance-amount">{{ "%.2f"|format(bank.opening_balance) }}</span>
                 </div>
-                <!-- Optional: Add money shortcut or similar could go here -->
+                <div class="balance-group" style="text-align: right;">
+                    <span class="balance-label">Current Balance</span>
+                    <span class="balance-amount" style="color: var(--brand-start);">{{ "%.2f"|format(bank.current_balance) }}</span>
+                </div>
             </div>
         </div>
         {% else %}
