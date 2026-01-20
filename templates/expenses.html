@@ -5,7 +5,7 @@
     <div class="header-content">
         <h1>Expenses</h1>
         <div class="header-actions">
-            <a href="{{ url_for('export_csv') }}" class="btn-outline">Export CSV</a>
+
             <a href="{{ url_for('export_pdf_route') }}" class="btn-outline">Download PDF</a>
             <button onclick="document.getElementById('email-modal').style.display='block'" class="btn-outline">Email Report</button>
             <a href="{{ url_for('add_expense') }}" class="btn-primary">+ Add New</a>

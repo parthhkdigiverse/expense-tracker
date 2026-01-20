@@ -1,9 +1,7 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file, make_response
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
 from supabase import create_client, Client, ClientOptions
 import os
 import datetime
-import io
-import csv
 from dotenv import load_dotenv
 from flask_mail import Mail, Message
 from utils import generate_pdf_report, send_email_report
@@ -676,30 +674,7 @@ def reports():
                             bar_labels=bar_labels, bar_exp=bar_exp, bar_inc=bar_inc,
                             currency=currency)
 
-@app.route('/export')
-def export_csv():
-    if 'user' not in session: return redirect(url_for('login'))
-    
-    try:
-        token = session.get('access_token')
 
-        res = get_db(token).table('expenses').select('*').eq('user_id', session['user']).execute()
-        expenses = res.data
-        
-        si = io.StringIO()
-        cw = csv.writer(si)
-        cw.writerow(['Date', 'Category', 'Amount', 'Description'])
-        
-        for ex in expenses:
-            cw.writerow([ex['date'], ex['category'], ex['amount'], ex['description']])
-            
-        output = make_response(si.getvalue())
-        output.headers["Content-Disposition"] = "attachment; filename=expenses.csv"
-        output.headers["Content-type"] = "text/csv"
-        return output
-    except Exception as e:
-        flash(f"Error exporting CSV: {str(e)}", 'error')
-        return redirect(url_for('dashboard'))
 
 @app.route('/export_pdf')
 def export_pdf_route():
