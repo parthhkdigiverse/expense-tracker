@@ -17,6 +17,19 @@
         <div style="margin-top: 0.5rem; font-size: 0.8125rem; color: var(--text-tertiary);">Available</div>
     </div>
 
+    <!-- Debt Stats -->
+    <div class="stat-card">
+        <span class="stat-title">To Receive</span>
+        <span class="stat-value text-success">{{ currency }}{{ total_lent }}</span>
+        <div style="margin-top: 0.5rem; font-size: 0.8125rem; color: var(--text-tertiary);">Money Lent</div>
+    </div>
+
+    <div class="stat-card">
+        <span class="stat-title">To Return</span>
+        <span class="stat-value text-danger">{{ currency }}{{ total_borrowed }}</span>
+        <div style="margin-top: 0.5rem; font-size: 0.8125rem; color: var(--text-tertiary);">Money Borrowed</div>
+    </div>
+
     <!-- Total Spent -->
     <div class="stat-card">
         <span class="stat-title">Total Spent</span>

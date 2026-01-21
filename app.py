@@ -162,6 +162,11 @@ def dashboard():
         total_opening = sum(float(b.get('opening_balance', 0)) for b in banks_res_bal.data)
         current_balance = total_opening + total_income - total_expense
 
+        # Fetch Debt Summary
+        debts_res = get_db(token).table('debts').select('amount, type').eq('user_id', session['user']).eq('status', 'active').execute()
+        total_lent = sum(d['amount'] for d in debts_res.data if d['type'] == 'lend')
+        total_borrowed = sum(d['amount'] for d in debts_res.data if d['type'] == 'borrow')
+
         budget = float(profile.get('budget', 0) or 0)
         
         percentage = 0
@@ -190,7 +195,10 @@ def dashboard():
                            current_balance=current_balance,
                            budget=budget, percentage=percentage, 
                            progress_class=progress_class,
-                           currency=profile.get('currency', '₹'))
+
+                           currency=profile.get('currency', '₹'),
+                           total_lent=total_lent,
+                           total_borrowed=total_borrowed)
 
 def get_filtered_expenses(token, user_id, args):
     """
@@ -886,6 +894,127 @@ def delete_recurring(recurring_id):
         flash(f"Error stopping recurring rule: {str(e)}", 'error')
         
     return redirect(url_for('expenses'))
+
+
+
+@app.route('/debts', methods=['GET', 'POST'])
+def debts():
+    if 'user' not in session: return redirect(url_for('login'))
+    
+    token = session.get('access_token')
+    
+    if request.method == 'POST':
+        person_name = request.form.get('person_name')
+        amount = float(request.form.get('amount'))
+        debt_type = request.form.get('type') # 'lend' or 'borrow'
+        bank_id = request.form.get('bank_account_id')
+        due_date = request.form.get('due_date') or None
+        
+        try:
+            # 1. Create Debt Record
+            debt_data = {
+                'user_id': session['user'],
+                'person_name': person_name,
+                'amount': amount,
+                'type': debt_type,
+                'due_date': due_date
+            }
+            res = get_db(token).table('debts').insert(debt_data).execute()
+            
+            # 2. Create Transaction to update Bank Balance
+            # Lend -> Expense (Money goes out)
+            # Borrow -> Income (Money comes in)
+            tx_type = 'expense' if debt_type == 'lend' else 'income'
+            desc = f"Lent to {person_name}" if debt_type == 'lend' else f"Borrowed from {person_name}"
+            
+            tx_data = {
+                'user_id': session['user'],
+                'date': datetime.date.today().isoformat(),
+                'category': 'Debt', 
+                'amount': amount,
+                'description': desc,
+                'type': tx_type,
+                'bank_account_id': bank_id if bank_id else None
+            }
+            get_db(token).table('expenses').insert(tx_data).execute()
+            
+            flash('Debt record created successfully!', 'success')
+            
+        except Exception as e:
+            flash(f"Error creating debt: {str(e)}", 'error')
+            
+        return redirect(url_for('debts'))
+        
+    # GET
+    try:
+        res = get_db(token).table('debts').select('*').eq('user_id', session['user']).eq('status', 'active').order('created_at', desc=True).execute()
+        debts_list = res.data
+        
+        lent_list = [d for d in debts_list if d['type'] == 'lend']
+        borrowed_list = [d for d in debts_list if d['type'] == 'borrow']
+        
+        banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute()
+        banks = banks_res.data
+        
+        prof_res = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
+        currency = prof_res.data[0]['currency'] if prof_res.data else '₹'
+        
+    except Exception as e:
+        flash(f"Error fetching debts: {str(e)}", 'error')
+        lent_list = []
+        borrowed_list = []
+        banks = []
+        currency = '₹'
+        
+    return render_template('debts.html', lent_list=lent_list, borrowed_list=borrowed_list, banks=banks, currency=currency)
+
+@app.route('/settle_debt/<debt_id>', methods=['POST'])
+def settle_debt(debt_id):
+    if 'user' not in session: return redirect(url_for('login'))
+    
+    token = session.get('access_token')
+    bank_id = request.form.get('bank_account_id') # Bank used to receive/pay back
+    
+    try:
+        # Get debt details first
+        res = get_db(token).table('debts').select('*').eq('id', debt_id).execute()
+        if not res.data:
+            flash('Debt record not found.', 'error')
+            return redirect(url_for('debts'))
+            
+        debt = res.data[0]
+        amount = debt['amount']
+        
+        # Update status to settled
+        get_db(token).table('debts').update({'status': 'settled'}).eq('id', debt_id).execute()
+        
+        # Create Transaction
+        # If I lent (lend), settling means I get money back -> Income
+        # If I borrowed (borrow), settling means I pay back -> Expense
+        if debt['type'] == 'lend':
+            tx_type = 'income'
+            desc = f"Repayment received from {debt['person_name']}"
+        else:
+            tx_type = 'expense'
+            desc = f"Repayment paid to {debt['person_name']}"
+            
+        tx_data = {
+            'user_id': session['user'],
+            'date': datetime.date.today().isoformat(),
+            'category': 'Debt Repayment',
+            'amount': amount,
+            'description': desc,
+            'type': tx_type,
+            'bank_account_id': bank_id if bank_id else None
+        }
+        get_db(token).table('expenses').insert(tx_data).execute()
+        
+        flash('Debt settled successfully!', 'success')
+        
+    except Exception as e:
+        flash(f"Error settling debt: {str(e)}", 'error')
+        
+    return redirect(url_for('debts'))
 
 if __name__ == '__main__':
     app.run(debug=True)
