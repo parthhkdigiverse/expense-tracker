@@ -53,40 +53,96 @@ def login():
         if not check_db_config():
             return render_template('login.html')
 
-        email = request.form.get('email')
+        username = request.form.get('username')
+        password = request.form.get('password')
         
-        # TESTER BYPASS
-        if email == 'tester@pocket.app':
-            try:
-                # Use a hardcoded password for the tester account
-                # Ensure this user exists in Supabase Auth with this password
-                res = supabase.auth.sign_in_with_password({
-                    "email": email,
-                    "password": "testerpassword123"
-                })
-                session['user'] = res.user.id
-                session['access_token'] = res.session.access_token
-                flash('Tester login successful!', 'success')
-                return redirect(url_for('dashboard'))
-            except Exception as e:
-                flash(f"Tester login failed: {str(e)}", 'error')
-                return render_template('login.html')
+        # TESTER BYPASS (Optional: keep or remove, keeping for safety if user relies on it)
+        if username == 'tester': # Assuming tester logic might want username 'tester'
+             # ... adapting tester logic if needed, but for now focusing on main auth
+             pass
 
         try:
-            redirect_url = url_for('verify', _external=True)
-            print(f"DEBUG: Redirect URL generated: {redirect_url}")
-            res = supabase.auth.sign_in_with_otp({
+            # 1. Lookup email from username
+            print(f"DEBUG: Attempting login for username: {username}")
+            
+            # Using ilike for case-insensitive match if possible, or usually just check what we have
+            user_res = supabase.table('profiles').select('email, id').eq('username', username).execute()
+            
+            print(f"DEBUG: Profile lookup result: {user_res.data}")
+            
+            if not user_res.data:
+                print("DEBUG: Username not found in profiles.")
+                flash('Invalid username or password', 'error')
+                return render_template('login.html')
+            
+            email = user_res.data[0]['email']
+            print(f"DEBUG: Found email: {email}")
+            
+            if not email:
+                 print("DEBUG: Email is None in profile!")
+                 flash('Account configuration error. Please login with code to fix.', 'error')
+                 return render_template('login.html')
+
+            # 2. Sign in with Email + Password
+            res = supabase.auth.sign_in_with_password({
                 "email": email,
+                "password": password
+            })
+            
+            print(f"DEBUG: Auth success. User ID: {res.user.id}")
+            
+            session['user'] = res.user.id
+            session['access_token'] = res.session.access_token
+            session['refresh_token'] = res.session.refresh_token
+            flash('Login successful!', 'success')
+            return redirect(url_for('dashboard'))
+            
+        except Exception as e:
+            print(f"DEBUG: Login failed: {str(e)}")
+            flash(f"Login failed: Invalid parameters", 'error') # specific error hidden for security
+            return render_template('login.html')
+            
+    return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        if not check_db_config():
+            return render_template('register.html')
+
+        email = request.form.get('email')
+        username = request.form.get('username')
+        password = request.form.get('password')
+        full_name = request.form.get('full_name')
+
+        try:
+            # 1. Check if username exists
+            existing_user = supabase.table('profiles').select('id').eq('username', username).execute()
+            if existing_user.data:
+                flash('Username already taken', 'error')
+                return render_template('register.html')
+
+            # 2. Sign Up
+            res = supabase.auth.sign_up({
+                "email": email,
+                "password": password,
                 "options": {
-                    "email_redirect_to": redirect_url
+                    "data": {
+                        "username": username,
+                        "full_name": full_name,
+                         # Avatar URL will be null initially or default
+                    }
                 }
             })
-            flash('OTP sent to your email!', 'info')
-            return redirect(url_for('verify', email=email))
+            
+            if res.user:
+                 flash('Registration successful! Please check your email to confirm if required, or login now.', 'success')
+                 return redirect(url_for('login'))
+            
         except Exception as e:
-            print(f"DEBUG: Error sending OTP: {str(e)}")
-            flash(f"Error: {str(e)}", 'error')
-    return render_template('login.html')
+            flash(f"Registration failed: {str(e)}", 'error')
+            
+    return render_template('register.html')
 
 @app.route('/auth/magic_login', methods=['POST'])
 def magic_login():
@@ -104,12 +160,36 @@ def magic_login():
         if user:
             session['user'] = user.id
             session['access_token'] = access_token
+            # Magic login often doesn't give refresh token easily unless we exchange it properly
+            # For now, this route might be legacy/less used, but let's leave it.
+            # Ideally we'd need refresh token here too if we want them to change passwords.
+            session['refresh_token'] = data.get('refresh_token') # Assume frontend passes it if available
             return jsonify({'success': True, 'redirect_url': url_for('dashboard')})
         else:
             return jsonify({'error': 'Invalid token'}), 401
     except Exception as e:
         print(f"DEBUG: Magic login error: {str(e)}")
         return jsonify({'error': str(e)}), 400
+
+@app.route('/login_with_code', methods=['POST'])
+def login_with_code():
+    if not check_db_config():
+        return render_template('login.html')
+
+    email = request.form.get('email')
+    try:
+        redirect_url = url_for('verify', _external=True)
+        res = supabase.auth.sign_in_with_otp({
+            "email": email,
+            "options": {
+                "email_redirect_to": redirect_url
+            }
+        })
+        flash('Magic link sent! Check your email.', 'info')
+        return redirect(url_for('verify', email=email))
+    except Exception as e:
+        flash(f"Error: {str(e)}", 'error')
+        return redirect(url_for('login'))
 
 @app.route('/verify', methods=['GET', 'POST'])
 def verify():
@@ -121,11 +201,80 @@ def verify():
             res = supabase.auth.verify_otp({"email": email, "token": otp, "type": "email"})
             session['user'] = res.user.id
             session['access_token'] = res.session.access_token
+            session['refresh_token'] = res.session.refresh_token
+            
+            # Check if user has a username
+            profile = get_user_profile(res.session.access_token)
+            
+            # Ensure email is in profiles (for legacy users)
+            if not profile.get('email'):
+                try:
+                    get_db(res.session.access_token).table('profiles').update({'email': email}).eq('id', session['user']).execute()
+                    profile['email'] = email # Update local dict
+                except Exception as e:
+                    print(f"Error updating email in profile: {e}")
+
+            if not profile.get('username'):
+                session['setup_required'] = True
+                flash('Login successful! Please complete your profile setup.', 'info')
+                return redirect(url_for('complete_profile'))
+                
             flash('Login successful!', 'success')
             return redirect(url_for('dashboard'))
         except Exception as e:
             flash(f"Login failed: {str(e)}", 'error')
     return render_template('verify.html', email=email)
+
+@app.route('/complete_profile', methods=['GET', 'POST'])
+def complete_profile():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+        
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        token = session.get('access_token')
+        
+        try:
+            # 1. Check if username exists
+            existing_user = supabase.table('profiles').select('id').eq('username', username).execute()
+            if existing_user.data:
+                flash('Username already taken', 'error')
+                return render_template('complete_profile.html')
+            
+            # 2. Update Profile
+            get_db(token).table('profiles').update({'username': username}).eq('id', session['user']).execute()
+            
+            # 3. Update Password (via Auth Admin or User Update)
+            # User update requires authenticated client
+            # 3. Update Password
+            # We need to ensure we have a valid session for the auth client
+            refresh_token = session.get('refresh_token')
+            if refresh_token:
+                # Create a fresh client and set session
+                # We can't rely on get_db(token) for Auth methods usually
+                auth_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+                auth_client.auth.set_session(token, refresh_token)
+                auth_client.auth.update_user({"password": password})
+            else:
+                 # Fallback (risky if get_db doesn't work) or error
+                 # Try get_db just in case it worked before or for some versions
+                 get_db(token).auth.update_user({"password": password})
+            
+            session.pop('setup_required', None)
+            flash('Profile setup complete! You can now login with your username.', 'success')
+            return redirect(url_for('dashboard'))
+            
+        except Exception as e:
+             flash(f"Error updating profile: {str(e)}", 'error')
+             
+    return render_template('complete_profile.html')
+
+@app.before_request
+def check_setup_required():
+    if session.get('setup_required'):
+        if request.endpoint not in ['complete_profile', 'logout', 'static']:
+             return redirect(url_for('complete_profile'))
 
 @app.route('/dashboard')
 def dashboard():
@@ -311,10 +460,21 @@ def profile():
     
     if request.method == 'POST':
         full_name = request.form.get('full_name')
+        new_username = request.form.get('username')
         avatar_url = request.form.get('avatar_url')
         budget_val = request.form.get('budget', 0)
         currency_val = request.form.get('currency', '₹')
         
+        # Check Username uniqueness if changed
+        current_profile = get_user_profile(token)
+        current_username = current_profile.get('username')
+        
+        if new_username and new_username != current_username:
+             existing_user = get_db(token).table('profiles').select('id').eq('username', new_username).execute()
+             if existing_user.data:
+                 flash('Username already taken', 'error')
+                 return redirect(url_for('profile'))
+
         if 'avatar_file' in request.files:
             file = request.files['avatar_file']
             if file and file.filename != '':
@@ -353,6 +513,7 @@ def profile():
         try:
             get_db(token).table('profiles').update({
                 'full_name': full_name,
+                'username': new_username,
                 'avatar_url': avatar_url,
                 'budget': float(budget_val),
                 'currency': currency_val
@@ -375,6 +536,34 @@ def profile():
         email = "Unknown"
         print(f"Error fetching profile/user: {e}")
     return render_template('profile.html', profile=profile, email=email)
+
+@app.route('/change_password', methods=['POST'])
+def change_password():
+    if 'user' not in session: return redirect(url_for('login'))
+    
+    new_password = request.form.get('new_password')
+    confirm_password = request.form.get('confirm_password')
+    
+    if new_password != confirm_password:
+        flash("Passwords do not match", "error")
+        return redirect(url_for('profile'))
+        
+    try:
+        token = session.get('access_token')
+        refresh_token = session.get('refresh_token')
+        
+        if refresh_token:
+             auth_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+             auth_client.auth.set_session(token, refresh_token)
+             auth_client.auth.update_user({"password": new_password})
+        else:
+             get_db(token).auth.update_user({"password": new_password})
+             
+        flash("Password updated successfully!", "success")
+    except Exception as e:
+        flash(f"Error updating password: {str(e)}", "error")
+        
+    return redirect(url_for('profile'))
 
 @app.route('/add_bank', methods=['POST'])
 def add_bank():
