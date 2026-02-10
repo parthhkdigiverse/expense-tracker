@@ -298,7 +298,9 @@ def dashboard():
         profile = profile_res.data[0] if profile_res.data else {}
         
         # Recent Expenses (Top 5)
-        expenses_res = get_db(token).table('expenses').select('*').eq('user_id', session['user']).order('date', desc=True).limit(5).execute()
+        # Recent Expenses (Top 5)
+        # Sort by Transaction Date first, then Entry Time
+        expenses_res = get_db(token).table('expenses').select('*').eq('user_id', session['user']).order('date', desc=True).order('created_at', desc=True).limit(5).execute()
         expenses = expenses_res.data
         
         # Calculate Logic - Expenses Only for "Total Spent"
@@ -359,7 +361,7 @@ def get_filtered_expenses(token, user_id, args):
     bank_id = args.get('bank_id')
 
     # Query with Join to get Bank Name
-    exp_query = get_db(token).table('expenses').select('*, bank_accounts(bank_name)').eq('user_id', user_id).order('date', desc=True)
+    exp_query = get_db(token).table('expenses').select('*, bank_accounts(bank_name)').eq('user_id', user_id).order('date', desc=True).order('created_at', desc=True)
 
     if start_date: exp_query = exp_query.gte('date', start_date)
     if end_date: exp_query = exp_query.lte('date', end_date)
