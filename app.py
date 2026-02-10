@@ -871,6 +871,60 @@ def add_expense():
 
     return render_template('add.html', today=datetime.date.today(), expense=None, banks=banks, currency=currency, categories=categories)
 
+@app.route('/bulk_add', methods=['GET', 'POST'])
+def bulk_add():
+    if 'user' not in session: return redirect(url_for('login'))
+    
+    token = session.get('access_token')
+    
+    if request.method == 'POST':
+        dates = request.form.getlist('date[]')
+        categories = request.form.getlist('category[]')
+        amounts = request.form.getlist('amount[]')
+        descriptions = request.form.getlist('description[]')
+        types = request.form.getlist('type[]')
+        bank_ids = request.form.getlist('bank_account_id[]')
+        
+        count = 0
+        try:
+            for i in range(len(dates)):
+                # Basic validation: ensure amount is provided
+                if not amounts[i]: continue
+                
+                data = {
+                    'user_id': session['user'],
+                    'date': dates[i],
+                    'category': categories[i],
+                    'amount': float(amounts[i]),
+                    'description': descriptions[i],
+                    'type': types[i],
+                    'bank_account_id': bank_ids[i] if bank_ids[i] else None
+                }
+                get_db(token).table('expenses').insert(data).execute()
+                count += 1
+            
+            flash(f'{count} transactions added successfully!', 'success')
+            return redirect(url_for('expenses'))
+        except Exception as e:
+            flash(f"Error adding bulk expenses: {str(e)}", 'error')
+            
+    # GET - Fetch needed data
+    categories = DEFAULT_CATEGORIES
+    try:
+        banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute()
+        banks = banks_res.data
+        
+        prof_res = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
+        currency = prof_res.data[0]['currency'] if prof_res.data else '₹'
+        
+        categories = get_all_categories(token, session['user'])
+    except:
+        banks = []
+        currency = '₹'
+        categories = DEFAULT_CATEGORIES
+        
+    return render_template('bulk_add.html', today=datetime.date.today(), banks=banks, currency=currency, categories=categories)
+
 @app.route('/edit_expense/<expense_id>', methods=['GET', 'POST'])
 def edit_expense(expense_id):
     if 'user' not in session: return redirect(url_for('login'))
