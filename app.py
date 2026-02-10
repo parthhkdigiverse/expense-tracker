@@ -586,7 +586,8 @@ def add_bank():
             'bank_name': bank_name,
             'account_number': account_number,
             'ifsc_code': ifsc_code,
-            'opening_balance': float(opening_balance)
+            'opening_balance': float(opening_balance),
+            'account_type': request.form.get('account_type', 'Personal')
         }
         get_db(token).table('bank_accounts').insert(data).execute()
         flash('Bank account added!', 'success')
@@ -604,6 +605,7 @@ def edit_bank(bank_id):
     account_number = request.form.get('account_number')
     ifsc_code = request.form.get('ifsc_code')
     opening_balance = request.form.get('opening_balance', 0)
+    account_type = request.form.get('account_type', 'Personal')
 
     try:
         token = session.get('access_token')
@@ -612,7 +614,8 @@ def edit_bank(bank_id):
             'bank_name': bank_name,
             'account_number': account_number,
             'ifsc_code': ifsc_code,
-            'opening_balance': float(opening_balance)
+            'opening_balance': float(opening_balance),
+            'account_type': request.form.get('account_type', 'Personal')
         }
         get_db(token).table('bank_accounts').update(data).eq('id', bank_id).eq('user_id', session['user']).execute()
         flash('Bank account updated!', 'success')
