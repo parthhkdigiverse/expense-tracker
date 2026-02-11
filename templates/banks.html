@@ -93,13 +93,7 @@
                 <label>Bank Name</label>
                 <input type="text" id="bank_name" name="bank_name" placeholder="e.g. HDFC Bank" required>
             </div>
-            <div class="form-group">
-                <label>Account Type</label>
-                <select id="account_type" name="account_type" required>
-                    <option value="Personal">Personal (Savings)</option>
-                    <option value="Business">Business</option>
-                </select>
-            </div>
+            <input type="hidden" name="account_type" value="Personal">
             <div class="form-group">
                 <label>Account Number</label>
                 <input type="text" id="account_number" name="account_number" placeholder="XXXX-XXXX-XXXX" required>
@@ -131,7 +125,7 @@
         form.action = "{{ url_for('add_bank') }}";
         form.reset();
         document.getElementById('opening_balance').value = "0";
-        document.getElementById('account_type').value = "Personal";
+        document.getElementById('opening_balance').value = "0";
     }
 
     function openEditModal(bank) {
@@ -144,7 +138,7 @@
         document.getElementById('account_number').value = bank.account_number;
         document.getElementById('ifsc_code').value = bank.ifsc_code;
         document.getElementById('opening_balance').value = bank.opening_balance || 0;
-        document.getElementById('account_type').value = bank.account_type || 'Personal';
+        document.getElementById('opening_balance').value = bank.opening_balance || 0;
     }
 
     function closeModal() {

@@ -94,6 +94,7 @@ def login():
             session['user'] = res.user.id
             session['access_token'] = res.session.access_token
             session['refresh_token'] = res.session.refresh_token
+            session['context'] = 'Personal' # Default context
             flash('Login successful!', 'success')
             return redirect(url_for('dashboard'))
             
@@ -202,6 +203,7 @@ def verify():
             session['user'] = res.user.id
             session['access_token'] = res.session.access_token
             session['refresh_token'] = res.session.refresh_token
+            session['context'] = 'Personal' # Default context
             
             # Check if user has a username
             profile = get_user_profile(res.session.access_token)
@@ -276,6 +278,58 @@ def check_setup_required():
         if request.endpoint not in ['complete_profile', 'logout', 'static']:
              return redirect(url_for('complete_profile'))
 
+@app.before_request
+def ensure_context():
+    if 'user' in session:
+        if 'context' not in session:
+            session['context'] = 'Personal'
+        if 'unlocked_banks' not in session:
+            session['unlocked_banks'] = []
+
+@app.route('/switch_context/<mode>')
+def switch_context(mode):
+    if mode not in ['Personal', 'Business']:
+        mode = 'Personal'
+    session['context'] = mode
+    session['unlocked_banks'] = [] # Lock all on context switch
+    flash(f"Switched to {mode} Mode", 'info')
+    return redirect(request.referrer or url_for('dashboard'))
+
+@app.route('/api/unlock_bank', methods=['POST'])
+def unlock_bank():
+    if 'user' not in session: return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    data = request.get_json()
+    bank_id = data.get('bank_id')
+    pin = data.get('pin')
+    
+    token = session.get('access_token')
+    try:
+        # Verify PIN against DB
+        res = get_db(token).table('bank_accounts').select('access_pin').eq('id', bank_id).single().execute()
+        if res.data and res.data['access_pin'] == pin:
+            # Enforce Single Active Bank Policy: Overwrite list with current bank
+            session['unlocked_banks'] = [bank_id]
+            session.modified = True
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'message': 'Invalid PIN'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/lock_bank', methods=['POST'])
+def lock_bank():
+    if 'user' not in session: return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    data = request.get_json()
+    bank_id = data.get('bank_id')
+    
+    if 'unlocked_banks' in session and bank_id in session['unlocked_banks']:
+        session['unlocked_banks'].remove(bank_id)
+        session.modified = True
+        
+    return jsonify({'success': True})
+
 @app.route('/dashboard')
 def dashboard():
     if 'user' not in session:
@@ -297,23 +351,73 @@ def dashboard():
         profile_res = get_db(token).table('profiles').select('*').eq('id', session['user']).execute()
         profile = profile_res.data[0] if profile_res.data else {}
         
-        # Recent Expenses (Top 5)
-        # Recent Expenses (Top 5)
-        # Sort by Transaction Date first, then Entry Time
-        expenses_res = get_db(token).table('expenses').select('*').eq('user_id', session['user']).order('date', desc=True).order('created_at', desc=True).limit(5).execute()
-        expenses = expenses_res.data
+        # Recent Expenses (Top 5) - Filtered by Context & Unlock Status
+        query = get_db(token).table('expenses').select('*').eq('user_id', session['user']).eq('context', session['context'])
         
-        # Calculate Logic - Expenses Only for "Total Spent"
-        all_tx_res = get_db(token).table('expenses').select('amount, type').eq('user_id', session['user']).execute()
-        total_expense = sum(ex['amount'] for ex in all_tx_res.data if ex['type'] == 'expense')
-        total_income = sum(ex['amount'] for ex in all_tx_res.data if ex['type'] == 'income')
+        # In Business Mode, restrict to unlocked banks
+        if session['context'] == 'Business':
+            unlocked = session.get('unlocked_banks', [])
+            if not unlocked:
+                # If nothing unlocked, return empty or dummy query that returns nothing
+                expenses = []
+            else:
+                # Filter expenses where bank_account_id is in unlocked list
+                # Supabase 'in' filter: .in_('column', [list])
+                query = query.in_('bank_account_id', unlocked)
+                expenses_res = query.order('date', desc=True).order('created_at', desc=True).limit(5).execute()
+                expenses = expenses_res.data
+        else:
+            expenses_res = query.order('date', desc=True).order('created_at', desc=True).limit(5).execute()
+            expenses = expenses_res.data
         
-        # Calculate Total Balance (Opening + Income - Expense)
-        banks_res_bal = get_db(token).table('bank_accounts').select('opening_balance').eq('user_id', session['user']).execute()
-        total_opening = sum(float(b.get('opening_balance', 0)) for b in banks_res_bal.data)
+        # Calculate Logic - Expenses Only for "Total Spent" - Filtered
+        all_tx_query = get_db(token).table('expenses').select('amount, type').eq('user_id', session['user']).eq('context', session['context'])
+        
+        if session['context'] == 'Business':
+            unlocked = session.get('unlocked_banks', [])
+            if not unlocked:
+                all_tx_data = [] # No data visible
+            else:
+                all_tx_res = all_tx_query.in_('bank_account_id', unlocked).execute()
+                all_tx_data = all_tx_res.data
+        else:
+            all_tx_res = all_tx_query.execute()
+            all_tx_data = all_tx_res.data
+
+        total_expense = sum(ex['amount'] for ex in all_tx_data if ex['type'] == 'expense')
+        total_income = sum(ex['amount'] for ex in all_tx_data if ex['type'] == 'income')
+        
+        # Calculate Total Balance
+        banks_query = get_db(token).table('bank_accounts').select('opening_balance').eq('user_id', session['user']).eq('account_type', session['context'])
+        
+        if session['context'] == 'Business':
+             unlocked = session.get('unlocked_banks', [])
+             if not unlocked:
+                 banks_data = []
+             else:
+                 banks_res_bal = banks_query.in_('id', unlocked).execute()
+                 banks_data = banks_res_bal.data
+        else:
+             banks_res_bal = banks_query.execute()
+             banks_data = banks_res_bal.data
+
+        total_opening = sum(float(b.get('opening_balance', 0)) for b in banks_data)
         current_balance = total_opening + total_income - total_expense
 
-        # Fetch Debt Summary
+        # Fetch Debt Summary - Filtered by Context (Debts also need context ideally, but schema didn't have it. 
+        # Assuming debts are mixed or we add context? 
+        # For now, let's filter debts if possible or leave them global? 
+        # User said "all my business transactions and expenses should not be visible together".
+        # Debts usually are personal, but businesses have debts too.
+        # Let's assume Debts are global for now unless migration added context to debts. 
+        # Migration only added to expenses. So Debts are global or we filter by something else?
+        # Let's show Debts in both or only Personal? 
+        # "manage personal and all my business ... separate" implies strict separation.
+        # IF debts table doesn't have context, we can't filter. 
+        # User didn't ask for debt separation explicitly but "all business transactions".
+        # Let's leave debts as is for now, or hide them in Business mode if they look personal.
+        # Actually, let's hide Debt widget in Business mode to be safe/clean?
+        # Or show globally. Let's show globally for now as no schema change for debts.
         debts_res = get_db(token).table('debts').select('amount, type').eq('user_id', session['user']).eq('status', 'active').execute()
         total_lent = sum(d['amount'] for d in debts_res.data if d['type'] == 'lend')
         total_borrowed = sum(d['amount'] for d in debts_res.data if d['type'] == 'borrow')
@@ -361,7 +465,15 @@ def get_filtered_expenses(token, user_id, args):
     bank_id = args.get('bank_id')
 
     # Query with Join to get Bank Name
-    exp_query = get_db(token).table('expenses').select('*, bank_accounts(bank_name)').eq('user_id', user_id).order('date', desc=True).order('created_at', desc=True)
+    exp_query = get_db(token).table('expenses').select('*, bank_accounts(bank_name)').eq('user_id', user_id).eq('context', session.get('context', 'Personal')).order('date', desc=True).order('created_at', desc=True)
+
+    # Business Privacy Filter
+    if session.get('context') == 'Business':
+        unlocked = session.get('unlocked_banks', [])
+        if not unlocked:
+            return [] # Return empty if no banks unlocked
+        # Filter strictly to unlocked banks
+        exp_query = exp_query.in_('bank_account_id', unlocked)
 
     if start_date: exp_query = exp_query.gte('date', start_date)
     if end_date: exp_query = exp_query.lte('date', end_date)
@@ -386,7 +498,7 @@ def expenses():
         expenses = get_filtered_expenses(token, session['user'], request.args)
         
         # Fetch Banks for Filter Dropdown
-        banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute()
+        banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).eq('account_type', session.get('context', 'Personal')).execute()
         banks = banks_res.data
         
         profile_res = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
@@ -407,10 +519,14 @@ def expenses():
 def banks():
     if 'user' not in session: return redirect(url_for('login'))
     
+    # If Business Context, show Business Accounts view
+    if session.get('context') == 'Business':
+        return redirect(url_for('manage_business'))
+
     try:
         token = session.get('access_token')
 
-        res = get_db(token).table('bank_accounts').select('*').eq('user_id', session['user']).execute()
+        res = get_db(token).table('bank_accounts').select('*').eq('user_id', session['user']).neq('account_type', 'Business').execute()
         banks = res.data
         
         # Fetch transactions linked to banks
@@ -443,6 +559,60 @@ def banks():
         traceback.print_exc()
         
     return render_template('banks.html', banks=banks)
+
+@app.route('/manage_business')
+def manage_business():
+    if 'user' not in session: return redirect(url_for('login'))
+    
+    try:
+        token = session.get('access_token')
+
+        res = get_db(token).table('bank_accounts').select('*').eq('user_id', session['user']).eq('account_type', 'Business').execute()
+        banks = res.data
+        
+        # Calculate current balance
+        # Fetch transactions
+        tx_res = get_db(token).table('expenses').select('amount, type, bank_account_id').eq('user_id', session['user']).not_.is_('bank_account_id', 'null').execute()
+        transactions = tx_res.data
+        
+        for bank in banks:
+            current_bal = float(bank.get('opening_balance', 0))
+            bank_txs = [t for t in transactions if t.get('bank_account_id') == bank['id']]
+            
+            for tx in bank_txs:
+                amount = float(tx['amount'])
+                if tx['type'] == 'income':
+                    current_bal += amount
+                elif tx['type'] == 'expense':
+                    current_bal -= amount
+            
+            bank['current_balance'] = current_bal
+            
+            # Check unlock status
+            unlocked_list = session.get('unlocked_banks', [])
+            bank['is_unlocked'] = bank['id'] in unlocked_list
+            
+        # Calculate Business Summary Metrics
+        total_liquidity = sum(b.get('current_balance', 0) for b in banks)
+        total_capital = sum(b.get('investment_amount', 0) or 0 for b in banks) # Ensure None is 0
+        total_holdings = sum(b.get('holding_amount', 0) or 0 for b in banks)
+
+        prof_res = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
+        currency = prof_res.data[0]['currency'] if prof_res.data else '₹'
+            
+    except Exception as e:
+        flash(f"Error fetching business accounts: {str(e)}", 'error')
+        banks = []
+        total_liquidity = 0
+        total_capital = 0
+        total_holdings = 0
+        currency = '₹'
+        
+    return render_template('manage_business.html', banks=banks, 
+                           total_liquidity=total_liquidity, 
+                           total_capital=total_capital, 
+                           total_holdings=total_holdings,
+                           currency=currency)
 
 # Helper to get profile with defaults
 def get_user_profile(token):
@@ -587,14 +757,25 @@ def add_bank():
             'account_number': account_number,
             'ifsc_code': ifsc_code,
             'opening_balance': float(opening_balance),
-            'account_type': request.form.get('account_type', 'Personal')
+            'account_type': request.form.get('account_type', 'Personal'),
+            'investment_amount': float(request.form.get('investment_amount', 0)),
+            'holding_amount': float(request.form.get('holding_amount', 0)),
+            'access_pin': request.form.get('access_pin')
         }
         get_db(token).table('bank_accounts').insert(data).execute()
-        flash('Bank account added!', 'success')
+        
+        if data['account_type'] == 'Business':
+            flash('Business account added!', 'success')
+            return redirect(url_for('manage_business'))
+        else:
+            flash('Bank account added!', 'success')
+            return redirect(url_for('banks'))
+
     except Exception as e:
         flash(f"Error adding bank: {str(e)}", 'error')
-    
-    return redirect(url_for('banks'))
+        if request.form.get('account_type') == 'Business':
+            return redirect(url_for('manage_business'))
+        return redirect(url_for('banks'))
 
 @app.route('/edit_bank/<bank_id>', methods=['POST'])
 def edit_bank(bank_id):
@@ -615,14 +796,21 @@ def edit_bank(bank_id):
             'account_number': account_number,
             'ifsc_code': ifsc_code,
             'opening_balance': float(opening_balance),
-            'account_type': request.form.get('account_type', 'Personal')
+            'account_type': account_type,
+            'investment_amount': float(request.form.get('investment_amount', 0)),
+            'holding_amount': float(request.form.get('holding_amount', 0)),
+            'access_pin': request.form.get('access_pin')
         }
         get_db(token).table('bank_accounts').update(data).eq('id', bank_id).eq('user_id', session['user']).execute()
-        flash('Bank account updated!', 'success')
+        flash('Account updated!', 'success')
+        
+        if account_type == 'Business':
+             return redirect(url_for('manage_business'))
+        return redirect(url_for('banks'))
+        
     except Exception as e:
         flash(f"Error updating bank: {str(e)}", 'error')
-    
-    return redirect(url_for('banks'))
+        return redirect(url_for('banks'))
 
 @app.route('/delete_bank/<bank_id>')
 def delete_bank(bank_id):
@@ -631,13 +819,21 @@ def delete_bank(bank_id):
     
     try:
         token = session.get('access_token')
+        
+        # Check type before deleting to know where to redirect
+        res = get_db(token).table('bank_accounts').select('account_type').eq('id', bank_id).execute()
+        acc_type = res.data[0]['account_type'] if res.data else 'Personal'
 
         get_db(token).table('bank_accounts').delete().eq('id', bank_id).eq('user_id', session['user']).execute()
-        flash('Bank account removed.', 'info')
+        flash('Account removed.', 'info')
+        
+        if acc_type == 'Business':
+            return redirect(url_for('manage_business'))
+        return redirect(url_for('banks'))
+        
     except Exception as e:
         flash(f"Error deleting bank: {str(e)}", 'error')
-    
-    return redirect(url_for('banks'))
+        return redirect(url_for('banks'))
 
 @app.route('/logout')
 def logout():
@@ -848,7 +1044,8 @@ def add_expense():
                 'type': tx_type,
                 'bank_account_id': bank_account_id,
                 'receipt_url': receipt_url,
-                'recurring_rule_id': recurring_id
+                'recurring_rule_id': recurring_id,
+                'context': session.get('context', 'Personal')
             }
             get_db(token).table('expenses').insert(data).execute()
             
@@ -860,7 +1057,7 @@ def add_expense():
     # GET - Fetch Banks and Currency
     categories = DEFAULT_CATEGORIES
     try:
-        banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute()
+        banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).eq('account_type', session.get('context', 'Personal')).execute()
         banks = banks_res.data
         
         prof_res = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
@@ -901,7 +1098,8 @@ def bulk_add():
                     'amount': float(amounts[i]),
                     'description': descriptions[i],
                     'type': types[i],
-                    'bank_account_id': bank_ids[i] if bank_ids[i] else None
+                    'bank_account_id': bank_ids[i] if bank_ids[i] else None,
+                    'context': session.get('context', 'Personal')
                 }
                 get_db(token).table('expenses').insert(data).execute()
                 count += 1
@@ -914,7 +1112,7 @@ def bulk_add():
     # GET - Fetch needed data
     categories = DEFAULT_CATEGORIES
     try:
-        banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute()
+        banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).eq('account_type', session.get('context', 'Personal')).execute()
         banks = banks_res.data
         
         prof_res = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
@@ -950,7 +1148,8 @@ def edit_expense(expense_id):
                 'amount': float(amount),
                 'description': description,
                 'type': tx_type,
-                'bank_account_id': bank_account_id
+                'bank_account_id': bank_account_id,
+                'context': session.get('context', 'Personal')
             }).eq('id', expense_id).execute()
             flash('Transaction updated!', 'success')
             return redirect(url_for('expenses'))

@@ -1,50 +1,55 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pocket Expense Tracker</title>
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', filename='css/style.css') }}"
-    />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
-  </head>
-  <body>
-    <div class="app-wrapper">
-        {% if 'user' in session %}
-            {% include 'sidebar.html' %}
-        {% endif %}
-        
-        <div class="main-content">
-            <div class="container">
-                {% with messages = get_flashed_messages(with_categories=true) %} 
-                {% if messages %}
-                <div class="flashes">
-                    {% for category, message in messages %}
-                    <div class="flash {{ category }}">{{ message }}</div>
-                    {% endfor %}
-                </div>
-                {% endif %} 
-                {% endwith %} 
-                
-                {% block content %}{% endblock %}
-            </div>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pocket Expense Tracker</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+
+<body>
+  <div class="app-wrapper">
+    {% if 'user' in session %}
+    {% include 'sidebar.html' %}
+    {% endif %}
+
+    <div class="main-content">
+      <!-- Mode Indicator -->
+      {% if session.get('context') == 'Business' %}
+      <div
+        style="background-color: #DCFCE7; color: #166534; padding: 0.5rem; text-align: center; border-bottom: 1px solid #86EFAC; font-weight: 600;">
+        Business Mode Active
+      </div>
+      {% endif %}
+
+      <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flashes">
+          {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
         </div>
+        {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+      </div>
     </div>
-    <script>
-      // Auto-dismiss flash messages
-      setTimeout(function() {
-        const flashes = document.querySelectorAll('.flash');
-        flashes.forEach(function(flash) {
-          flash.style.transition = 'opacity 0.5s ease-in-out';
-          flash.style.opacity = '0';
-          setTimeout(() => flash.remove(), 500);
-        });
-      }, 3000); // Wait 3 seconds before starting fade out
-    </script>
-  </body>
+  </div>
+  <script>
+    // Auto-dismiss flash messages
+    setTimeout(function () {
+      const flashes = document.querySelectorAll('.flash');
+      flashes.forEach(function (flash) {
+        flash.style.transition = 'opacity 0.5s ease-in-out';
+        flash.style.opacity = '0';
+        setTimeout(() => flash.remove(), 500);
+      });
+    }, 3000); // Wait 3 seconds before starting fade out
+  </script>
+</body>
+
 </html>

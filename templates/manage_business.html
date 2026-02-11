@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="dashboard-header">
+    <div class="header-content">
+        <h1>Overview</h1>
+        <p class="text-muted">Business Portfolio Performance</p>
+    </div>
+    <div class="header-actions">
+        <button onclick="openAddModal()" class="btn-primary">+ New Capital Account</button>
+    </div>
+</div>
+
+<!-- Financial Summary Cards -->
+<div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-bottom: 2rem;">
+    <div class="stat-card" style="border-left: 4px solid var(--brand-start);">
+        <span class="stat-title">Total Liquidity</span>
+        <span class="stat-value" style="color: var(--brand-start);">{{ currency }}{{ total_liquidity | round(2)
+            }}</span>
+        <div style="margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-tertiary);">Available Cash Flow</div>
+    </div>
+    <div class="stat-card" style="border-left: 4px solid var(--accent-success);">
+        <span class="stat-title">Total Capital Injection</span>
+        <span class="stat-value" style="color: var(--text-primary);">{{ currency }}{{ total_capital | round(2) }}</span>
+        <div style="margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-tertiary);">Initial Investments</div>
+    </div>
+    <div class="stat-card" style="border-left: 4px solid #6366f1;">
+        <span class="stat-title">Retained Holdings</span>
+        <span class="stat-value" style="color: var(--text-primary);">{{ currency }}{{ total_holdings | round(2)
+            }}</span>
+        <div style="margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-tertiary);">Reserved Assets</div>
+    </div>
+    <div class="stat-card" style="border-left: 4px solid #f59e0b;">
+        <span class="stat-title">Net Position</span>
+        <span class="stat-value" style="color: var(--text-primary);">{{ currency }}{{ (total_liquidity + total_holdings)
+            | round(2) }}</span>
+        <div style="margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-tertiary);">Liquidity + Holdings</div>
+    </div>
+</div>
+
+<!-- Business Accounts Table -->
+<div class="card">
+    <div class="card-header">
+        <h2>Capital Accounts</h2>
+    </div>
+    <div class="table-responsive">
+        <table class="styled-table">
+            <thead>
+                <tr>
+                    <th>Institution</th>
+                    <th>Account Identifier</th>
+                    <th style="text-align: right;">Current Liquidity</th>
+                    <th style="text-align: right;">Capital Injection</th>
+                    <th style="text-align: right;">Holdings</th>
+                    <th style="text-align: center;">Status</th>
+                    <th style="text-align: center;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for bank in banks %}
+                <tr>
+                    <td>
+                        <div style="font-weight: 600;">{{ bank.bank_name }}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-tertiary);">{{ bank.ifsc_code }}</div>
+                    </td>
+                    <td>{{ bank.account_number }}</td>
+
+                    <!-- Secured Data Columns -->
+                    <td style="text-align: right; font-family: monospace; font-size: 0.9rem;">
+                        {% if bank.is_unlocked %}
+                        <span style="color: var(--brand-start);">{{ currency }}{{ "%.2f"|format(bank.current_balance)
+                            }}</span>
+                        {% else %}
+                        <span class="text-muted">Locked</span>
+                        {% endif %}
+                    </td>
+                    <td style="text-align: right; font-family: monospace; font-size: 0.9rem;">
+                        {% if bank.is_unlocked %}
+                        {{ currency }}{{ "%.2f"|format(bank.investment_amount or 0) }}
+                        {% else %}
+                        <span class="text-muted">---</span>
+                        {% endif %}
+                    </td>
+                    <td style="text-align: right; font-family: monospace; font-size: 0.9rem;">
+                        {% if bank.is_unlocked %}
+                        {{ currency }}{{ "%.2f"|format(bank.holding_amount or 0) }}
+                        {% else %}
+                        <span class="text-muted">---</span>
+                        {% endif %}
+                    </td>
+
+                    <td style="text-align: center;">
+                        {% if bank.is_unlocked %}
+                        <span class="badge" style="background-color: #d1fae5; color: #065f46;">Access Granted</span>
+                        {% else %}
+                        <span class="badge" style="background-color: #f3f4f6; color: #6b7280;">Secure</span>
+                        {% endif %}
+                    </td>
+
+                    <td style="text-align: center;">
+                        {% if bank.is_unlocked %}
+                        <button class="btn-icon-only" onclick="lockBank('{{ bank.id }}')" title="Lock Access">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor" stroke-width="2" width="18" height="18" style="color: #ef4444;">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                            </svg>
+                        </button>
+                        <button class="btn-icon-only" data-bank='{{ bank | tojson | forceescape }}'
+                            onclick="openEditModal(JSON.parse(this.dataset.bank))" title="Configure">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor" stroke-width="2" width="18" height="18">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                        </button>
+                        {% else %}
+                        <button class="btn-primary" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;"
+                            onclick="promptPin('{{ bank.id }}')">Unlock</button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7" style="text-align: center; padding: 2rem; color: var(--text-tertiary);">No capital
+                        accounts configured.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- PIN Verification Modal -->
+<div id="pin-modal" class="modal">
+    <div class="modal-content" style="max-width: 300px;">
+        <span onclick="closePinModal()" class="close">&times;</span>
+        <h2>Enter PIN</h2>
+        <div class="form-group">
+            <input type="password" id="access_pin_input" placeholder="****" maxlength="4"
+                style="text-align: center; font-size: 1.5rem; letter-spacing: 0.5rem;">
+        </div>
+        <button id="verify-pin-btn" class="btn-primary" style="width: 100%; justify-content: center;">Unlock</button>
+    </div>
+</div>
+
+<!-- Add/Edit Business Account Modal -->
+<div id="business-modal" class="modal">
+    <div class="modal-content">
+        <span onclick="closeBusinessModal()" class="close">&times;</span>
+        <h2 id="modal-title">Add Business Account</h2>
+        <form id="business-form" action="{{ url_for('add_bank') }}" method="POST">
+            <!-- Hidden Account Type -->
+            <input type="hidden" name="account_type" value="Business">
+
+            <div class="form-group">
+                <label>Bank Name</label>
+                <input type="text" id="bank_name" name="bank_name" placeholder="e.g. HDFC Business" required>
+            </div>
+            <div class="form-group">
+                <label>Account Number</label>
+                <input type="text" id="account_number" name="account_number" placeholder="XXXX-XXXX-XXXX" required>
+            </div>
+            <div class="form-group">
+                <label>IFSC Code</label>
+                <input type="text" id="ifsc_code" name="ifsc_code" placeholder="HDFC0001234" required>
+            </div>
+            <div class="form-group">
+                <label>Opening Balance</label>
+                <input type="number" id="opening_balance" name="opening_balance" placeholder="0.00" step="0.01"
+                    value="0">
+            </div>
+
+            <!-- Business Specific Fields -->
+            <div class="form-group">
+                <label>Investment Amount</label>
+                <input type="number" id="investment_amount" name="investment_amount" placeholder="0.00" step="0.01"
+                    value="0">
+            </div>
+            <div class="form-group">
+                <label>Holding Payment</label>
+                <input type="number" id="holding_amount" name="holding_amount" placeholder="0.00" step="0.01" value="0">
+            </div>
+            <div class="form-group">
+                <label>Access PIN (4 digits)</label>
+                <input type="text" id="access_pin" name="access_pin" placeholder="1234" maxlength="4" required>
+            </div>
+
+            <button type="submit" id="modal-submit-btn" class="btn-primary">Add Account</button>
+        </form>
+    </div>
+</div>
+
+<script>
+    // PIN Logic
+    let currentBankId = null;
+
+    function promptPin(bankId) {
+        currentBankId = bankId;
+        document.getElementById('pin-modal').style.display = 'block';
+        document.getElementById('access_pin_input').value = '';
+        document.getElementById('access_pin_input').focus();
+    }
+
+    document.getElementById('verify-pin-btn').onclick = function () {
+        const inputPin = document.getElementById('access_pin_input').value;
+
+        fetch("{{ url_for('unlock_bank') }}", {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ bank_id: currentBankId, pin: inputPin })
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Redirect to Dashboard to show stats
+                    window.location.href = "{{ url_for('dashboard') }}";
+                } else {
+                    alert(data.message || 'Incorrect PIN');
+                }
+            })
+            .catch(error => console.error('Error:', error));
+    };
+
+    function lockBank(bankId) {
+        fetch("{{ url_for('lock_bank') }}", {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ bank_id: bankId })
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                }
+            });
+    }
+
+    function closePinModal() {
+        document.getElementById('pin-modal').style.display = 'none';
+    }
+
+    // Modal Logic
+    const modal = document.getElementById('business-modal');
+    const form = document.getElementById('business-form');
+    const title = document.getElementById('modal-title');
+    const submitBtn = document.getElementById('modal-submit-btn');
+
+    function openAddModal() {
+        modal.style.display = "block";
+        title.innerText = "Add Business Account";
+        submitBtn.innerText = "Add Account";
+        form.action = "{{ url_for('add_bank') }}";
+        form.reset();
+        document.getElementById('opening_balance').value = "0";
+        document.getElementById('investment_amount').value = "0";
+        document.getElementById('holding_amount').value = "0";
+    }
+
+    function openEditModal(bank) {
+        modal.style.display = "block";
+        title.innerText = "Edit Business Account";
+        submitBtn.innerText = "Update Configuration";
+        form.action = "/edit_bank/" + bank.id;
+
+        document.getElementById('bank_name').value = bank.bank_name;
+        document.getElementById('account_number').value = bank.account_number;
+        document.getElementById('ifsc_code').value = bank.ifsc_code;
+        document.getElementById('opening_balance').value = bank.opening_balance || 0;
+        document.getElementById('investment_amount').value = bank.investment_amount || 0;
+        document.getElementById('holding_amount').value = bank.holding_amount || 0;
+        document.getElementById('access_pin').value = bank.access_pin || '';
+    }
+
+    function closeBusinessModal() {
+        modal.style.display = "none";
+    }
+
+    // Close modals on outside click
+    window.onclick = function (event) {
+        if (event.target === modal || event.target === document.getElementById('pin-modal')) {
+            modal.style.display = "none";
+            document.getElementById('pin-modal').style.display = "none";
+        }
+    }
+
+    function openSettleModal(bankId) {
+        alert("Settle Payment feature coming soon! (Use Expenses -> Add Transaction)");
+    }
+</script>
+
+<style>
+    .badge-business {
+        background-color: #DCFCE7;
+        color: #166534;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.7rem;
+    }
+
+    .hidden {
+        display: none !important;
+    }
+</style>
+{% endblock %}
