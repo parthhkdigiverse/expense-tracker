@@ -1,0 +1,6 @@
+flask
+python-dotenv
+supabase==2.5.0
+fpdf
+flask-mail
+
