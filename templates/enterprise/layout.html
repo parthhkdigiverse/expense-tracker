@@ -20,7 +20,7 @@
                 </svg>
                 Enterprise Intelligence
             </h1>
-            <p>Managing: <strong>{{ org_name }}</strong></p>
+            <p>Managing: <strong>{{ session.get('active_business') | default('Select Business', true) }}</strong></p>
         </div>
         <div class="ent-actions">
             <a href="{{ url_for('enterprise.select_organization') }}" class="btn-secondary">Switch Org</a>

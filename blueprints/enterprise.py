@@ -36,14 +36,26 @@ def enterprise_required(f):
                 flash("Access Denied: Enterprise Management is restricted to authorized members.", "error")
                 return redirect(url_for('dashboard'))
 
-            if 'curr_org_id' not in session:
-                if len(member_orgs) == 1:
+            valid_org_ids = [str(m['id']) for m in member_orgs]
+
+            # If curr_org_id is missing or no longer valid, re-derive it from the active business
+            if 'curr_org_id' not in session or str(session['curr_org_id']) not in valid_org_ids:
+                active_biz = session.get('active_business')
+                if active_biz:
+                    org_id = db_service.provision_business_org(user_id, active_biz)
+                    if org_id:
+                        session['curr_org_id'] = org_id
+                        valid_org_ids = valid_org_ids + [org_id]
+                    else:
+                        session.pop('curr_org_id', None)
+                        flash("Could not resolve your business organisation.", "error")
+                        return redirect(url_for('dashboard'))
+                elif len(member_orgs) == 1:
                     session['curr_org_id'] = member_orgs[0]['id']
                 else:
                     return redirect(url_for('enterprise.select_organization'))
 
-            valid_org_ids = [str(m['id']) for m in member_orgs]
-            if str(session['curr_org_id']) not in valid_org_ids:
+            if str(session.get('curr_org_id', '')) not in valid_org_ids:
                 session.pop('curr_org_id', None)
                 return redirect(url_for('enterprise.select_organization'))
 
@@ -99,12 +111,16 @@ def enterprise_signup():
     if ok:
         # Automatically verify for local development
         db_service.verify_business_email(token)
-        
+
         verify_url = url_for('enterprise.verify_email', token=token, _external=True)
         # Mock email — print to console for local testing reference
         print(f"\n=== VERIFICATION LINK (Auto-Verified) for {business_name} ===\n{verify_url}\n")
-        
+
+        # Create a dedicated organisation for this business and enrol the owner
+        org_id = db_service.provision_business_org(session['user'], business_name)
         session['active_business'] = business_name
+        if org_id:
+            session['curr_org_id'] = org_id
         flash(f'Account created and auto-verified for development!', 'success')
         return redirect(url_for('enterprise.ent_dashboard'))
     else:
@@ -137,8 +153,18 @@ def enterprise_login():
     # (Original check removed to unblock development)
 
     session['active_business'] = business_name
+    # Provision (or retrieve) the dedicated org for this business and lock in curr_org_id.
+    # This is idempotent — safe for both new and existing businesses.
+    org_id = db_service.provision_business_org(session['user'], business_name)
+    print(f"[DEBUG LOGIN] business_name={business_name!r}, provisioned org_id={org_id!r}")
+    if org_id:
+        session['curr_org_id'] = org_id
+    else:
+        session.pop('curr_org_id', None)
+    print(f"[DEBUG LOGIN] session curr_org_id is now: {session.get('curr_org_id')!r}")
     flash(f'Signed in to {business_name} successfully!', 'success')
     return redirect(url_for('enterprise.ent_dashboard'))
+
 
 
 @enterprise_bp.route('/verify/<token>')
@@ -332,7 +358,9 @@ def members():
 def revenue_expenses():
     org_id = session.get('curr_org_id')
     db_service = get_db_service(session.get('access_token'))
+    print(f"[DEBUG CASHFLOW] active_business={session.get('active_business')!r}, curr_org_id={org_id!r}")
     
+
     period = request.args.get('period', 'this_month')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
@@ -521,6 +549,13 @@ def holding_payments():
         flash(f"Error loading holding payments: {str(e)}", "error")
         transactions = []
 
+    # Fetch org-scoped bank accounts for Payment Method dropdown
+    active_biz = session.get('active_business', '')
+    try:
+        enterprise_banks = db_service.get_banks_for_org(user_id, active_biz)
+    except Exception:
+        enterprise_banks = []
+
     total_receivable = sum(Decimal(str(t.get('amount') or 0)) for t in transactions if t.get('type') == 'receivable')
     total_payable    = sum(Decimal(str(t.get('amount') or 0)) for t in transactions if t.get('type') == 'payable')
     net_holding      = total_receivable - total_payable
@@ -533,7 +568,8 @@ def holding_payments():
     }
 
     return render_template('enterprise/holding_payments.html',
-                           transactions=transactions, kpis=kpis)
+                           transactions=transactions, kpis=kpis,
+                           enterprise_banks=enterprise_banks)
 
 
 @enterprise_bp.route('/holding-payments/settle', methods=['POST'])
@@ -595,6 +631,13 @@ def investments():
         flash(f"Error loading investments: {str(e)}", "error")
         investments_list = []
 
+    # Fetch org-scoped bank accounts for Payment Method dropdown
+    active_biz = session.get('active_business', '')
+    try:
+        enterprise_banks = db_service.get_banks_for_org(session['user'], active_biz)
+    except Exception:
+        enterprise_banks = []
+
     total_investment = sum(Decimal(str(i.get('amount') or 0)) for i in investments_list if i.get('type', 'investment') == 'investment')
     total_withdraw   = sum(Decimal(str(i.get('amount') or 0)) for i in investments_list if i.get('type') == 'withdraw')
     net_capital      = total_investment - total_withdraw
@@ -607,7 +650,8 @@ def investments():
     }
 
     return render_template('enterprise/investments.html',
-                           investments_list=investments_list, kpis=kpis)
+                           investments_list=investments_list, kpis=kpis,
+                           enterprise_banks=enterprise_banks)
 # -------------------------------------------------------------------------------------
 
 @enterprise_bp.route('/export/<format>')

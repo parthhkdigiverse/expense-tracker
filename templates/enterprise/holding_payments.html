@@ -208,12 +208,23 @@
                 <input type="tel" name="mobile_no" class="form-control" placeholder="e.g. +91 98765 43210"
                     style="margin-top:0.35rem;">
             </div>
-            <div class="form-group" style="margin-bottom: 1.5rem;">
+            <div class="form-group" style="margin-bottom: 1rem;">
                 <label style="font-weight: 600; font-size: 0.875rem;">Narrative</label>
                 <textarea name="narrative" class="form-control" rows="3" placeholder="Brief description..."
                     style="margin-top:0.35rem; resize:vertical;"></textarea>
             </div>
+            <!-- Payment Method (org-scoped) -->
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+                <label style="font-weight: 600; font-size: 0.875rem;">Payment Method</label>
+                <select name="method" class="form-control" style="margin-top:0.35rem;">
+                    <option value="Cash">Cash</option>
+                    {% for bank in enterprise_banks %}
+                    <option value="{{ bank.id }}">{{ bank.bank_name }} ({{ bank.account_type or 'Bank' }})</option>
+                    {% endfor %}
+                </select>
+            </div>
             <div id="addTxnError" style="display:none; color:#dc2626; font-size:0.875rem; margin-bottom:1rem;"></div>
+
             <div style="display:flex; gap:0.75rem; justify-content:flex-end;">
                 <button type="button" id="cancelAddModal" class="btn-secondary">Cancel</button>
                 <button type="submit" id="saveTxnBtn" class="btn-primary">Save Transaction</button>

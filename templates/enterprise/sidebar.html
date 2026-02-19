@@ -1,7 +1,7 @@
 <div class="sidebar ent-sidebar" id="sidebar">
     <div class="sidebar-header">
         <div class="sidebar-logo">
-            <h2 id="pocket-expense-title">Corp Intel</h2>
+            <h2 id="pocket-expense-title">{{ session.get('active_business') | default('Select Business', true) }}</h2>
         </div>
         <button id="sidebar-close" class="mobile-close-btn" aria-label="Close sidebar">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2"

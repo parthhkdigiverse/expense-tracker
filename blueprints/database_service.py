@@ -76,6 +76,14 @@ class BaseService:
     def get_holding_payments(self, org_id: str) -> List[Dict[str, Any]]:
         raise NotImplementedError
 
+    def get_banks_for_org(self, user_id: str, org_name: str) -> List[Dict[str, Any]]:
+        """Return enterprise bank accounts scoped to the active business name."""
+        raise NotImplementedError
+
+    def provision_business_org(self, user_id: str, business_name: str) -> Optional[str]:
+        """Ensure a dedicated org exists for this business_name; return its id."""
+        raise NotImplementedError
+
     def add_holding_payment(self, org_id: str, user_id: str, data: dict) -> bool:
         raise NotImplementedError
 
@@ -109,6 +117,14 @@ class SupabaseService(BaseService):
     def get_organization_name(self, org_id: str) -> Optional[str]:
         res = self.db.table('ent_organizations').select('name').eq('id', org_id).single().execute()
         return res.data.get('name') if res.data else None
+
+    def get_org_id_by_name(self, user_id: str, org_name: str) -> Optional[str]:
+        """Return the org id whose name matches org_name for orgs the user belongs to."""
+        res = self.db.table('ent_members').select('organization_id, ent_organizations(name)').eq('user_id', user_id).execute()
+        for m in res.data:
+            if m.get('ent_organizations', {}).get('name') == org_name:
+                return str(m['organization_id'])
+        return None
 
     def get_revenue(self, org_id: str, start_date: str = None, end_date: str = None) -> List[Dict[str, Any]]:
         query = self.db.table('ent_revenue').select('*, profiles(full_name), bank_accounts(bank_name)').eq('organization_id', org_id)
@@ -176,6 +192,14 @@ class SupabaseService(BaseService):
     def get_enterprise_banks(self, user_id: str) -> List[Dict[str, Any]]:
         # Enterprise banks are local-only; Supabase has no enterprise_bank_accounts table
         return []
+
+    def get_banks_for_org(self, user_id: str, org_name: str) -> List[Dict[str, Any]]:
+        # Enterprise banks are local-only; Supabase has no enterprise_bank_accounts table
+        return []
+
+    def provision_business_org(self, user_id: str, business_name: str) -> Optional[str]:
+        # Supabase orgs are managed separately; return None
+        return None
 
     def add_enterprise_bank(self, user_id: str, data: Dict[str, Any]) -> bool:
         # Enterprise banks are local-only
@@ -362,6 +386,17 @@ class PostgresService(BaseService):
         res = self._execute_query(query, (org_id,))
         return res[0]['name'] if res else None
 
+    def get_org_id_by_name(self, user_id: str, org_name: str) -> Optional[str]:
+        """Return org id whose name matches org_name, scoped to orgs the user belongs to."""
+        query = """
+            SELECT o.id FROM ent_organizations o
+            JOIN ent_members m ON o.id = m.organization_id
+            WHERE m.user_id = %s AND o.name = %s
+            LIMIT 1
+        """
+        res = self._execute_query(query, (user_id, org_name))
+        return str(res[0]['id']) if res else None
+
     def get_revenue(self, org_id: str, start_date: str = None, end_date: str = None) -> List[Dict[str, Any]]:
         query = """
             SELECT r.*, p.full_name as taken_by_name, b.bank_name, b.account_type 
@@ -508,6 +543,56 @@ class PostgresService(BaseService):
         """Fetch enterprise (Current/CC/OD) accounts from local PostgreSQL."""
         query = "SELECT * FROM enterprise_bank_accounts WHERE user_id = %s ORDER BY created_at DESC"
         return self._execute_query(query, (user_id,))
+
+    def get_banks_for_org(self, user_id: str, org_name: str) -> List[Dict[str, Any]]:
+        """Return enterprise bank accounts scoped to the active business name (org_name from session)."""
+        query = "SELECT * FROM enterprise_bank_accounts WHERE user_id = %s AND business_name = %s ORDER BY created_at DESC"
+        return self._execute_query(query, (user_id, org_name))
+
+    def provision_business_org(self, user_id: str, business_name: str) -> Optional[str]:
+        """Idempotently create a dedicated org for this business and enroll the user. Returns org_id."""
+        conn = PostgresService._pool.getconn()
+        try:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                # 1. Check if this user already has an org for this business name
+                cur.execute(
+                    """SELECT o.id FROM ent_organizations o
+                       JOIN ent_members m ON o.id = m.organization_id
+                       WHERE o.name = %s AND m.user_id = %s
+                       LIMIT 1""",
+                    (business_name, user_id)
+                )
+                existing = cur.fetchone()
+                if existing:
+                    return str(existing['id'])
+
+                # 2. No org yet — create one (within the same transaction)
+                cur.execute(
+                    "INSERT INTO ent_organizations (name) VALUES (%s) RETURNING id",
+                    (business_name,)
+                )
+                new_org = cur.fetchone()
+                if not new_org:
+                    return None
+                org_id = str(new_org['id'])
+
+                # 3. Enroll user as admin — FK is satisfied because we're in the same transaction
+                cur.execute(
+                    """INSERT INTO ent_members (organization_id, user_id, role)
+                       VALUES (%s, %s, 'admin')
+                       ON CONFLICT (organization_id, user_id) DO NOTHING""",
+                    (org_id, user_id)
+                )
+
+            conn.commit()
+            return org_id
+        except Exception as e:
+            conn.rollback()
+            print(f"[provision_business_org] Error: {e}")
+            return None
+        finally:
+            PostgresService._pool.putconn(conn)
+
 
     def add_enterprise_bank(self, user_id: str, data: Dict[str, Any]) -> bool:
         """Insert a new enterprise bank account into local PostgreSQL."""
