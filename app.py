@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
 from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
 from functools import wraps
 from decimal import Decimal
 from supabase import create_client, Client, ClientOptions
@@ -15,6 +16,8 @@ from blueprints.database_service import SupabaseService, get_supabase_client
 load_dotenv()
 
 app = Flask(__name__)
+# Crucial for Vercel: Tell Flask it is behind a secure proxy to fix HTTPS redirects & cookies
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 # ---------------------------------------------------------
 # Configuration & Security through .env
