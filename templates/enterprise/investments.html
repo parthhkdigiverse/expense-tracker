@@ -80,7 +80,7 @@
                     <td>
                         {% set itype = item.get('type') or 'investment' %}
                         <span style="padding: 0.2rem 0.65rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
-                                     background: {{ '#dcfce7' if itype == 'investment' else '#fee2e2' }};
+                                     background-color: {{ '#dcfce7' if itype == 'investment' else '#fee2e2' }};
                                      color: {{ '#16a34a' if itype == 'investment' else '#dc2626' }};">
                             {{ itype | capitalize }}
                         </span>
@@ -147,7 +147,7 @@
             <!-- Taken By -->
             <div class="form-group" style="margin-bottom: 1rem;">
                 <label style="font-weight: 600; font-size: 0.875rem;">Taken By / Investor</label>
-                <select name="taken_by" class="form-control" style="margin-top:0.35rem;">
+                <select name="taken_by" id="takenBySelect" class="form-control" style="margin-top:0.35rem;">
                     <option value="">— Select —</option>
                     {% for m in org_members %}
                     <option value="{{ m.name }}">{{ m.name }}{% if m.designation %} ({{ m.designation }}){% endif %}

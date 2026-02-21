@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from flask_mail import Mail, Message
 from utils import generate_pdf_report, send_email_report
 from blueprints.enterprise import enterprise_bp
-from blueprints.database_service import get_db_service, SupabaseService, get_supabase_client
+from blueprints.database_service import SupabaseService, get_supabase_client
 
 load_dotenv()
 
@@ -51,11 +51,10 @@ app.config['MAIL_PASSWORD'] = os.getenv("MAIL_PASSWORD", "uqzm jykr xehs cmne")
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv("MAIL_USERNAME", "parthhkdigiverse@gmail.com")
 mail = Mail(app)
 
-# Database Configuration
-DB_BACKEND = os.getenv("DB_BACKEND", "supabase").lower()
+# Supabase Configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-REFRESH_THRESHOLD = int(os.getenv("REFRESH_THRESHOLD_SECONDS", 120)) # 2 minutes
+REFRESH_THRESHOLD = int(os.getenv("REFRESH_THRESHOLD_SECONDS", 120))  # seconds before expiry to trigger refresh
 
 # Register Blueprints
 app.register_blueprint(enterprise_bp, url_prefix='/enterprise')
@@ -108,38 +107,31 @@ def manage_session_logic():
                 flash('Session expired due to inactivity. Please login again.', 'warning')
                 return redirect(url_for('login'))
 
-        # 2. Refresh Supabase Token if needed (Only for Supabase Backend)
-        if DB_BACKEND == 'supabase':
-            expires_at = session.get('access_expires_at')
-            if expires_at:
-                 # Check if nearing expiry
-                 if isinstance(expires_at, int): # Timestamp
-                     exp_time = datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc)
-                 else:
-                     exp_time = datetime.datetime.fromisoformat(expires_at)
-                     if exp_time.tzinfo is None:
-                         exp_time = exp_time.replace(tzinfo=datetime.timezone.utc)
-                 
-                 time_left = exp_time - now
-                 if time_left < timedelta(seconds=REFRESH_THRESHOLD):
-                     print("DEBUG: Refreshing Supabase Token...")
-                     refresh_token = session.get('refresh_token')
-                     if refresh_token:
-                         try:
-                             # Use Supabase client to refresh
-                             res = supabase.auth.refresh_session(refresh_token)
-                             if res and res.session:
-                                 session['access_token'] = res.session.access_token
-                                 session['refresh_token'] = res.session.refresh_token
-                                 session['access_expires_at'] = res.session.expires_at
-                                 print("DEBUG: Token refreshed successfully.")
-                             else:
-                                 raise Exception("Refresh failed")
-                         except Exception as e:
-                             print(f"DEBUG: Token refresh failed: {e}")
-                             session.clear()
-                             flash('Session expired. Please login again.', 'error')
-                             return redirect(url_for('login'))
+        # 2. Refresh Supabase Token if nearing expiry
+        expires_at = session.get('access_expires_at')
+        if expires_at:
+            if isinstance(expires_at, int):
+                exp_time = datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc)
+            else:
+                exp_time = datetime.datetime.fromisoformat(expires_at)
+                if exp_time.tzinfo is None:
+                    exp_time = exp_time.replace(tzinfo=datetime.timezone.utc)
+            if (exp_time - now) < timedelta(seconds=REFRESH_THRESHOLD):
+                refresh_token = session.get('refresh_token')
+                if refresh_token:
+                    try:
+                        res = supabase.auth.refresh_session(refresh_token)
+                        if res and res.session:
+                            session['access_token']      = res.session.access_token
+                            session['refresh_token']      = res.session.refresh_token
+                            session['access_expires_at']  = res.session.expires_at
+                        else:
+                            raise Exception("Supabase refresh returned no session")
+                    except Exception as e:
+                        current_app.logger.warning(f"Token refresh failed: {e}")
+                        session.clear()
+                        flash('Session expired. Please login again.', 'error')
+                        return redirect(url_for('login'))
 
         # 3. Update Last Activity
         session['last_activity'] = now.isoformat()
@@ -267,18 +259,23 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
 
+        # 1. Lookup email from username
         try:
-            # 1. Lookup email from username
             user_res = supabase.table('profiles').select('email, id').eq('username', username).execute()
-            if not user_res.data:
-                flash('Invalid username or password', 'error')
-                return render_template('login.html')
-            
-            email = user_res.data[0]['email']
-            if not email:
-                 flash('Account configuration error.', 'error')
-                 return render_template('login.html')
+        except Exception as query_e:
+            flash(f"User Lookup Error: {str(query_e)}", 'error')
+            return render_template('login.html')
 
+        if not user_res.data:
+            flash('Invalid username or password', 'error')
+            return render_template('login.html')
+            
+        email = user_res.data[0]['email']
+        if not email:
+            flash('Account configuration error.', 'error')
+            return render_template('login.html')
+
+        try:
             # 2. Sign in
             res = supabase.auth.sign_in_with_password({
                 "email": email,
@@ -300,11 +297,21 @@ def login():
             return redirect(url_for('dashboard'))
             
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             print(f"Login Error: {e}")
             flash('Login failed. Please check credentials.', 'error')
             
     return render_template('login.html')
 
+@app.route('/test_login_debug', methods=['GET'])
+def test_login_debug():
+    try:
+        user_res = supabase.table('profiles').select('email, id').eq('username', 'Blinks').execute()
+        return jsonify({"success": True, "data": user_res.data})
+    except Exception as e:
+        import traceback
+        return jsonify({"success": False, "error": str(e), "trace": traceback.format_exc()})
 
 @app.route('/logout')
 def logout():
@@ -317,10 +324,14 @@ def register():
     if request.method == 'POST':
         if not check_db_config(): return render_template('register.html')
 
-        email = request.form.get('email')
-        username = request.form.get('username')
-        password = request.form.get('password')
-        full_name = request.form.get('full_name')
+        email = request.form.get('email', '').strip()
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        full_name = request.form.get('full_name', '').strip()
+
+        if not email or not username or not password:
+            flash('Email, username, and password are required.', 'error')
+            return render_template('register.html')
 
         try:
             existing_user = supabase.table('profiles').select('id').eq('username', username).execute()
@@ -339,8 +350,20 @@ def register():
                 }
             })
             if res.user:
-                 flash('Registration successful! Please login.', 'success')
-                 return redirect(url_for('login'))
+                # Explicit profile upsert — guarantees username & email are saved
+                # even if the Supabase DB trigger is running an older version.
+                try:
+                    supabase.table('profiles').upsert({
+                        'id':        res.user.id,
+                        'email':     email,
+                        'username':  username,
+                        'full_name': full_name,
+                    }, on_conflict='id').execute()
+                except Exception as pe:
+                    print(f"[register] profile upsert warning: {pe}")
+
+                flash('Registration successful! Please check your email to verify your account, then login.', 'success')
+                return redirect(url_for('login'))
         except Exception as e:
             flash(f"Registration failed: {str(e)}", 'error')
     return render_template('register.html')
@@ -663,12 +686,12 @@ def banks():
     if 'user' not in session: return redirect(url_for('login'))
     try:
         token = session.get('access_token')
-        db_service = get_db_service(token)
+        db_service = SupabaseService(get_supabase_client(token))
 
-        # 1. Fetch Personal (Savings) Banks from Supabase
+        # 1. Personal (Savings) banks from Supabase
         banks = db_service.get_personal_banks(session['user'])
 
-        # 2. Fetch Enterprise (Current/CC/OD) Banks from local PostgreSQL
+        # 2. Enterprise (Current/CC/OD) banks from Supabase enterprise_bank_accounts
         enterprise_banks = db_service.get_enterprise_banks(session['user'])
 
         # 3. Calculate running balance for personal banks
@@ -682,6 +705,33 @@ def banks():
                 if tx['type'] == 'income': current_bal += amount
                 elif tx['type'] == 'expense': current_bal -= amount
             bank['current_balance'] = current_bal
+
+        # 4. Calculate running balance for enterprise banks
+        ent_bank_ids = [b['id'] for b in enterprise_banks]
+        if ent_bank_ids:
+            ent_rev_res = get_db(token).table('ent_revenue').select('amount, bank_account_id').in_('bank_account_id', ent_bank_ids).execute()
+            ent_exp_res = get_db(token).table('ent_expenses').select('amount, bank_account_id').in_('bank_account_id', ent_bank_ids).execute()
+            
+            ent_revs = ent_rev_res.data or []
+            ent_exps = ent_exp_res.data or []
+            
+            for ent_bank in enterprise_banks:
+                current_bal = float(ent_bank.get('opening_balance', 0))
+                
+                # Add all income
+                for rev in ent_revs:
+                    if rev.get('bank_account_id') == ent_bank['id']:
+                        current_bal += float(rev['amount'])
+                        
+                # Subtract all expenses
+                for exp in ent_exps:
+                    if exp.get('bank_account_id') == ent_bank['id']:
+                        current_bal -= float(exp['amount'])
+                        
+                ent_bank['current_balance'] = current_bal
+        else:
+            for ent_bank in enterprise_banks:
+                ent_bank['current_balance'] = float(ent_bank.get('opening_balance', 0))
     except Exception as e:
         flash(f"Error: {str(e)}", 'error')
         banks, enterprise_banks = [], []
@@ -887,11 +937,13 @@ def add_expense():
                 if rec_res.data: recurring_id = rec_res.data[0]['id']
                 msg += " (Set to recur monthly)"
 
+            # Ensure this is un-indented back to the try block level!
             get_db(token).table('expenses').insert({
                 'user_id': session['user'], 'date': date, 'category': category, 'amount': float(amount),
                 'description': desc, 'type': tx_type, 'bank_account_id': bank_id or None,
                 'receipt_url': receipt_url, 'recurring_rule_id': recurring_id
             }).execute()
+            
             flash(msg, 'success')
             return redirect(url_for('expenses'))
         except Exception as e:
@@ -1241,11 +1293,11 @@ def add_enterprise_bank():
             'opening_balance': float(request.form.get('opening_balance', 0) or 0),
             'account_type': account_type
         }
-        db_service = get_db_service(session.get('access_token'))
+        db_service = SupabaseService(get_supabase_client(session.get('access_token')))
         if db_service.add_enterprise_bank(session['user'], data):
             flash('Business account added!', 'success')
         else:
-            flash('Failed to add business account. Check DB_BACKEND is set to local.', 'error')
+            flash('Failed to add business account. Please try again.', 'error')
     except Exception as e:
         flash(f"Error: {str(e)}", 'error')
     return redirect(url_for('banks'))
@@ -1254,7 +1306,7 @@ def add_enterprise_bank():
 def delete_enterprise_bank(bank_id):
     if 'user' not in session: return redirect(url_for('login'))
     try:
-        db_service = get_db_service(session.get('access_token'))
+        db_service = SupabaseService(get_supabase_client(session.get('access_token')))
         if db_service.delete_enterprise_bank(session['user'], bank_id):
             flash('Business account removed.', 'info')
         else:
@@ -1279,7 +1331,7 @@ def edit_enterprise_bank(bank_id):
             'opening_balance': float(request.form.get('opening_balance', 0) or 0),
             'account_type': account_type
         }
-        db_service = get_db_service(session.get('access_token'))
+        db_service = SupabaseService(get_supabase_client(session.get('access_token')))
         if db_service.update_enterprise_bank(session['user'], bank_id, data):
             flash('Business account updated!', 'success')
         else:

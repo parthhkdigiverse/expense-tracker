@@ -3,7 +3,7 @@
 {% block content %}
 <div class="dashboard-header">
     <div class="header-content">
-        <h1>Bank Accounts</h1>
+        <h1>Bank Accounts [DEBUG v3]</h1>
         <div class="header-actions" style="display: flex; gap: 10px;">
             <button onclick="openAddModal()" class="btn-primary">+ Add New Account</button>
             <button onclick="openEnterpriseModal()" class="btn-primary">+ Add Current Account</button>
@@ -28,7 +28,12 @@
                     </div>
                     <div class="bank-title-group">
                         <h3>{{ bank.bank_name }}</h3>
-                        <div class="bank-sublink" onclick='openEditModal({{ bank | tojson }})'>Edit Details</div>
+                        <div class="bank-sublink" data-id="{{ bank.id }}" data-bank="{{ bank.bank_name }}"
+                            data-acct="{{ bank.account_number }}" data-ifsc="{{ bank.ifsc_code }}"
+                            data-bal="{{ bank.opening_balance }}"
+                            onclick="openEditModal({id: this.getAttribute('data-id'), bank_name: this.getAttribute('data-bank'), account_number: this.getAttribute('data-acct'), ifsc_code: this.getAttribute('data-ifsc'), opening_balance: this.getAttribute('data-bal')})">
+                            Edit Details
+                        </div>
                     </div>
                 </div>
 
@@ -106,7 +111,12 @@
                                 style="background: #8b5cf6; color: white; border-radius: 4px; padding: 2px 8px; font-size: 0.65em; font-weight: 600; vertical-align: middle; margin-left: 5px;">CC/OD</span>
                             {% endif %}
                         </h3>
-                        <div class="bank-sublink" onclick='openEditEnterpriseModal({{ bank | tojson }})'>Edit Details
+                        <div class="bank-sublink" data-id="{{ bank.id }}" data-business="{{ bank.business_name }}"
+                            data-bank="{{ bank.bank_name }}" data-acct="{{ bank.account_number }}"
+                            data-ifsc="{{ bank.ifsc_code }}" data-bal="{{ bank.opening_balance }}"
+                            data-type="{{ bank.account_type }}"
+                            onclick="openEditEnterpriseModal({id: this.getAttribute('data-id'), business_name: this.getAttribute('data-business'), bank_name: this.getAttribute('data-bank'), account_number: this.getAttribute('data-acct'), ifsc_code: this.getAttribute('data-ifsc'), opening_balance: this.getAttribute('data-bal'), account_type: this.getAttribute('data-type')})">
+                            Edit Details
                         </div>
                     </div>
                 </div>
@@ -146,7 +156,8 @@
                 </div>
             </div>
             <button class="btn-primary" style="width: 100%; margin-top: 0.75rem;"
-                onclick='openBusinessAuth({{ bank | tojson }})'>Manage Business →</button>
+                data-business-name="{{ bank.business_name }}"
+                onclick="openBusinessAuth(this.getAttribute('data-business-name'))">Manage Business →</button>
         </div>
         {% endfor %}
         {% else %}
@@ -309,103 +320,183 @@
     }
 </script>
 
-<!-- Business Auth Modal -->
+
+<!-- Business Auth (Double Login) Modal -->
 <div id="business-auth-modal" class="modal">
-    <div class="modal-content">
-        <span class="close" onclick="closeBusinessAuth()">&times;</span>
-        <h2 id="biz-auth-title">Business Access</h2>
-        <p id="biz-auth-subtitle" style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.9rem;"></p>
+    <div class="modal-content" style="max-width: 400px; text-align: center;">
+        <span onclick="closeBusinessAuth()" class="close">&times;</span>
+        <h2 id="business-auth-title" style="margin-bottom: 0.5rem; color: var(--text-primary);">Business Access</h2>
+        <p id="business-auth-subtitle" style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.95rem;">
+            Securing access to <strong id="business-auth-name-display" style="color: var(--brand-start);"></strong>
+        </p>
 
-        <!-- Sign Up Form -->
-        <form id="biz-signup-form" method="POST" action="{{ url_for('enterprise.enterprise_signup') }}"
-            style="display:none;">
-            <input type="hidden" id="signup_biz_name" name="business_name">
-            <div class="form-group">
-                <label>Email</label>
-                <input type="email" name="email" placeholder="business@example.com" required>
+        <!-- Loading State -->
+        <div id="business-auth-loader" style="display: none; padding: 2rem 0;">
+            <div
+                style="width: 24px; height: 24px; border: 3px solid #f3f3f3; border-top: 3px solid var(--brand-start); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;">
             </div>
-            <div class="form-group">
-                <label>Password</label>
-                <input type="password" name="password" placeholder="Create a password" required>
-            </div>
-            <div class="form-group">
-                <label>Confirm Password</label>
-                <input type="password" name="confirm_password" placeholder="Confirm password" required>
-            </div>
-            <div class="modal-footer" style="display: flex; gap: 1rem; margin-top: 2rem;">
-                <button type="button" onclick="closeBusinessAuth()" class="btn-secondary"
-                    style="flex: 1;">Cancel</button>
-                <button type="submit" class="btn-primary" style="flex: 2;">Sign Up</button>
-            </div>
-        </form>
-
-        <!-- Sign In Form -->
-        <form id="biz-signin-form" method="POST" action="{{ url_for('enterprise.enterprise_login') }}"
-            style="display:none;">
-            <input type="hidden" id="signin_biz_name" name="business_name">
-            <div class="form-group">
-                <label>Email</label>
-                <input type="email" name="email" placeholder="business@example.com" required>
-            </div>
-            <div class="form-group">
-                <label>Password</label>
-                <input type="password" name="password" placeholder="Your password" required>
-            </div>
-            <div class="modal-footer" style="display: flex; gap: 1rem; margin-top: 2rem;">
-                <button type="button" onclick="closeBusinessAuth()" class="btn-secondary"
-                    style="flex: 1;">Cancel</button>
-                <button type="submit" class="btn-primary" style="flex: 2;">Sign In</button>
-            </div>
-        </form>
-
-        <div id="biz-auth-loading" style="text-align: center; padding: 2rem; color: var(--text-secondary);">
-            Checking registration status...
+            <p style="margin-top: 1rem; color: var(--text-secondary);">Verifying security status...</p>
         </div>
+
+        <form id="business-auth-form" method="POST" style="display: none;">
+            <input type="hidden" id="auth_business_name" name="business_name">
+
+            <div id="pin-login-group" class="form-group" style="text-align: left;">
+                <label>Security PIN <span style="color: red;">*</span></label>
+                <input type="password" name="password" id="auth_password" placeholder="Enter Business PIN" required>
+            </div>
+
+            <div id="auth-confirm-group" class="form-group" style="display: none; text-align: left;">
+                <label>Confirm PIN <span style="color: red;">*</span></label>
+                <input type="password" name="confirm_password" id="auth_confirm_password"
+                    placeholder="Confirm Security PIN">
+                <p style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 0.25rem;">
+                    You are setting up a secure PIN for this business for the first time.
+                </p>
+            </div>
+
+            <!-- New Reset PIN Group -->
+            <div id="auth-reset-group" style="display: none; text-align: left;">
+                <div class="form-group">
+                    <label>Account Password <span style="color: red;">*</span></label>
+                    <input type="password" name="account_password" id="auth_account_password"
+                        placeholder="Your primary login password">
+                    <p style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.2rem;">Verify ownership
+                        with your main account password.</p>
+                </div>
+                <div class="form-group">
+                    <label>New Security PIN <span style="color: red;">*</span></label>
+                    <input type="password" name="new_pin" id="auth_new_pin" placeholder="Enter new 4-6 digit PIN">
+                </div>
+                <div class="form-group">
+                    <label>Confirm New PIN <span style="color: red;">*</span></label>
+                    <input type="password" name="confirm_pin" id="auth_new_confirm" placeholder="Confirm new PIN">
+                </div>
+            </div>
+
+            <div id="forgot-pin-container" style="text-align: right; margin-bottom: 1rem; display: none;">
+                <a href="javascript:void(0)" onclick="togglePinReset(true)"
+                    style="font-size: 0.85rem; color: var(--brand-start); text-decoration: none;">Forgot Security
+                    PIN?</a>
+            </div>
+            <div id="back-to-login-container" style="text-align: left; margin-bottom: 1rem; display: none;">
+                <a href="javascript:void(0)" onclick="togglePinReset(false)"
+                    style="font-size: 0.85rem; color: var(--text-tertiary); text-decoration: none;">&larr; Back to
+                    Login</a>
+            </div>
+
+            <button type="submit" id="business-auth-submit" class="btn-primary" style="width: 100%; margin-top: 1rem;">
+                Access Dashboard
+            </button>
+        </form>
     </div>
 </div>
 
+<style>
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+</style>
+
 <script>
-    function openBusinessAuth(bank) {
-        const modal = document.getElementById('business-auth-modal');
-        const signupForm = document.getElementById('biz-signup-form');
-        const signinForm = document.getElementById('biz-signin-form');
-        const loading = document.getElementById('biz-auth-loading');
-        const title = document.getElementById('biz-auth-title');
-        const subtitle = document.getElementById('biz-auth-subtitle');
+    const authModal = document.getElementById('business-auth-modal');
+    const authForm = document.getElementById('business-auth-form');
+    const authLoader = document.getElementById('business-auth-loader');
+    const authTitle = document.getElementById('business-auth-title');
+    const confirmGroup = document.getElementById('auth-confirm-group');
+    const confirmInput = document.getElementById('auth_confirm_password');
+    const authSubmitBtn = document.getElementById('business-auth-submit');
+    const resetGroup = document.getElementById('auth-reset-group');
+    const forgotContainer = document.getElementById('forgot-pin-container');
+    const backContainer = document.getElementById('back-to-login-container');
+    const pinGroup = document.getElementById('pin-login-group');
+
+    async function openBusinessAuth(businessName) {
+        authModal.style.display = "block";
+        document.getElementById('business-auth-name-display').innerText = businessName;
+        document.getElementById('auth_business_name').value = businessName;
 
         // Reset state
-        signupForm.style.display = 'none';
-        signinForm.style.display = 'none';
-        loading.style.display = 'block';
-        modal.style.display = 'block';
-        title.innerText = bank.business_name;
-        subtitle.innerText = 'Checking registration status...';
+        authForm.reset();
+        authForm.style.display = "none";
+        authLoader.style.display = "block";
+        togglePinReset(false); // Ensure we start in normal mode
 
-        // Set hidden fields
-        document.getElementById('signup_biz_name').value = bank.business_name;
-        document.getElementById('signin_biz_name').value = bank.business_name;
+        try {
+            // Check if user has a PIN registered for this business
+            const response = await fetch(`/enterprise/check_auth/${encodeURIComponent(businessName)}`);
+            const data = await response.json();
 
-        // Check if registered
-        fetch('/enterprise/check_auth/' + encodeURIComponent(bank.business_name))
-            .then(r => r.json())
-            .then(data => {
-                loading.style.display = 'none';
-                if (data.registered) {
-                    signinForm.style.display = 'block';
-                    subtitle.innerText = 'Sign in to manage this business.';
-                } else {
-                    signupForm.style.display = 'block';
-                    subtitle.innerText = 'Create credentials to access enterprise features.';
-                }
-            })
-            .catch(() => {
-                loading.style.display = 'none';
-                subtitle.innerText = 'Error checking status. Try again.';
-            });
+            authLoader.style.display = "none";
+            authForm.style.display = "block";
+
+            if (data.registered) {
+                // Login Mode
+                authTitle.innerText = "Unlock Business";
+                confirmGroup.style.display = "none";
+                confirmInput.required = false;
+                forgotContainer.style.display = "block";
+                authSubmitBtn.innerText = "Access Dashboard";
+                authForm.action = "/enterprise/login";
+            } else {
+                // Setup / Signup Mode
+                authTitle.innerText = "Setup Security PIN";
+                confirmGroup.style.display = "block";
+                confirmInput.required = true;
+                forgotContainer.style.display = "none";
+                authSubmitBtn.innerText = "Set PIN & Continue";
+                authForm.action = "/enterprise/signup";
+            }
+
+            // Focus password field automatically
+            setTimeout(() => document.getElementById('auth_password').focus(), 100);
+
+        } catch (error) {
+            console.error("Auth check failed:", error);
+            authTitle.innerText = "Error";
+            authLoader.innerHTML = "<p style='color:red;'>Could not contact server. Please refresh.</p>";
+        }
+    }
+
+    function togglePinReset(showReset) {
+        if (showReset) {
+            authTitle.innerText = "Reset Security PIN";
+            pinGroup.style.display = "none";
+            resetGroup.style.display = "block";
+            forgotContainer.style.display = "none";
+            backContainer.style.display = "block";
+            authForm.action = "/enterprise/reset_pin";
+            authSubmitBtn.innerText = "Reset PIN Now";
+
+            // Set required fields
+            document.getElementById('auth_account_password').required = true;
+            document.getElementById('auth_new_pin').required = true;
+            document.getElementById('auth_new_confirm').required = true;
+            document.getElementById('auth_password').required = false;
+        } else {
+            // Restore Login/Signup state will be handled by openBusinessAuth
+            // but for toggle back, we specifically restore Login look
+            pinGroup.style.display = "block";
+            resetGroup.style.display = "none";
+            backContainer.style.display = "none";
+
+            document.getElementById('auth_account_password').required = false;
+            document.getElementById('auth_new_pin').required = false;
+            document.getElementById('auth_new_confirm').required = false;
+            document.getElementById('auth_password').required = true;
+
+            // Note: openBusinessAuth will fix Titles/Actions/Buttons correctly
+        }
     }
 
     function closeBusinessAuth() {
-        document.getElementById('business-auth-modal').style.display = 'none';
+        authModal.style.display = "none";
     }
 </script>
 {% endblock %}

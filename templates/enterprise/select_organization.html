@@ -10,7 +10,7 @@
 
         <div style="display: flex; flex-direction: column; gap: 0.75rem;">
             {% for biz in businesses %}
-            <a href="{{ url_for('enterprise.business_login_page', business_name=biz.business_name) }}" style="display:flex; align-items:center; justify-content:space-between;
+            <a href="{{ url_for('enterprise.access_business', business_name=biz.business_name) }}" style="display:flex; align-items:center; justify-content:space-between;
                       padding:1.1rem 1.25rem; border:1.5px solid var(--border-light, #e5e7eb);
                       border-radius:0.75rem; text-decoration:none; transition:all 0.2s;
                       background:var(--surface-card, #fff);"

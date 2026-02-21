@@ -36,7 +36,7 @@
                     <td style="color:var(--text-tertiary); font-size:0.82rem;">{{ loop.index }}</td>
                     <td style="font-weight:600;">{{ member.name }}</td>
                     <td>{{ member.designation or '—' }}</td>
-                    <td style="color:var(--text-tertiary); font-size:0.82rem;">{{ member.created_at.date() if
+                    <td style="color:var(--text-tertiary); font-size:0.82rem;">{{ member.created_at[:10] if
                         member.created_at else '—' }}</td>
                 </tr>
                 {% else %}
