@@ -72,11 +72,12 @@ def enterprise_required(f):
     return decorated_function
 
 # ── Business Authentication (Double Login) ──────────────────────────────────
-@enterprise_bp.route('/check_auth/<path:business_name>')
-def check_auth(business_name):
+@enterprise_bp.route('/check_auth')
+def check_auth():
     """JSON API: Returns if the business has a PIN registered for this user."""
     if 'user' not in session:
         return jsonify({'error': 'Not logged in'}), 401
+    business_name = request.args.get('bname', '')
     try:
         res = _svc().db.table('ent_members') \
             .select('pin_hash, ent_organizations!inner(name)') \

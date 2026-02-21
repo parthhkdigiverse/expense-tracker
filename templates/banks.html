@@ -430,7 +430,7 @@
 
         try {
             // Check if user has a PIN registered for this business
-            const response = await fetch(`/enterprise/check_auth/${encodeURIComponent(businessName)}`);
+            const response = await fetch(`/enterprise/check_auth?bname=${encodeURIComponent(businessName)}`);
             const data = await response.json();
 
             authLoader.style.display = "none";
