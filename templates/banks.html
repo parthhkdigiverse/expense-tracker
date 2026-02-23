@@ -3,7 +3,7 @@
 {% block content %}
 <div class="dashboard-header">
     <div class="header-content">
-        <h1>Bank Accounts [DEBUG v3]</h1>
+        <h1>Personal Bank Accounts</h1>
         <div class="header-actions" style="display: flex; gap: 10px;">
             <button onclick="openAddModal()" class="btn-primary">+ Add New Account</button>
             <button onclick="openEnterpriseModal()" class="btn-primary">+ Add Current Account</button>
@@ -111,13 +111,6 @@
                                 style="background: #8b5cf6; color: white; border-radius: 4px; padding: 2px 8px; font-size: 0.65em; font-weight: 600; vertical-align: middle; margin-left: 5px;">CC/OD</span>
                             {% endif %}
                         </h3>
-                        <div class="bank-sublink" data-id="{{ bank.id }}" data-business="{{ bank.business_name }}"
-                            data-bank="{{ bank.bank_name }}" data-acct="{{ bank.account_number }}"
-                            data-ifsc="{{ bank.ifsc_code }}" data-bal="{{ bank.opening_balance }}"
-                            data-type="{{ bank.account_type }}"
-                            onclick="openEditEnterpriseModal({id: this.getAttribute('data-id'), business_name: this.getAttribute('data-business'), bank_name: this.getAttribute('data-bank'), account_number: this.getAttribute('data-acct'), ifsc_code: this.getAttribute('data-ifsc'), opening_balance: this.getAttribute('data-bal'), account_type: this.getAttribute('data-type')})">
-                            Edit Details
-                        </div>
                     </div>
                 </div>
 
@@ -291,20 +284,6 @@
         entForm.reset();
         document.getElementById('ent_business_name').value = "";
         document.getElementById('ent_opening_balance').value = "0";
-    }
-
-    function openEditEnterpriseModal(bank) {
-        entModal.style.display = "block";
-        entTitle.innerText = "Edit Business Account";
-        entSubmitBtn.innerText = "Update Business Account";
-        entForm.action = "/edit_enterprise_bank/" + bank.id;
-
-        document.getElementById('ent_business_name').value = bank.business_name || "";
-        document.getElementById('ent_bank_name').value = bank.bank_name;
-        document.getElementById('ent_account_number').value = bank.account_number;
-        document.getElementById('ent_ifsc_code').value = bank.ifsc_code;
-        document.getElementById('ent_opening_balance').value = bank.opening_balance || 0;
-        document.getElementById('ent_account_type').value = bank.account_type || "Current";
     }
 
     function closeEnterpriseModal() {

@@ -651,6 +651,76 @@ def investments():
                            investments_list=investments_list, kpis=kpis,
                            enterprise_banks=enterprise_banks, org_members=org_members)
 
+# ── Profile ───────────────────────────────────────────────────────────────────
+@enterprise_bp.route('/profile', methods=['GET', 'POST'])
+@enterprise_required
+def ent_profile():
+    active_biz = session.get('active_business')
+    svc = _svc()
+    
+    # Get the specific bank account for this active business
+    banks = svc.get_enterprise_banks(session['user'])
+    active_bank = next((b for b in banks if b.get('business_name') == active_biz), None)
+    
+    if request.method == 'POST':
+        if not active_bank:
+            flash("No bank account found for this business. Setup required in Banks.", "error")
+            return redirect(url_for('enterprise.ent_profile'))
+
+        account_type = request.form.get('account_type', 'Current')
+        data = {
+            'business_name': active_biz, # Enforce read-only business name
+            'bank_name': request.form.get('bank_name'),
+            'account_number': request.form.get('account_number'),
+            'ifsc_code': request.form.get('ifsc_code'),
+            'opening_balance': float(active_bank.get('opening_balance', 0) or 0),
+            'account_type': account_type
+        }
+        
+        ok = svc.update_enterprise_bank(session['user'], str(active_bank['id']), data)
+        if ok:
+            flash("Enterprise Profile updated successfully.", "success")
+        else:
+            flash("Failed to update profile.", "error")
+            
+        return redirect(url_for('enterprise.ent_profile'))
+        
+    return render_template('enterprise/profile.html', bank=active_bank)
+
+# ── Update PIN ────────────────────────────────────────────────────────────────
+@enterprise_bp.route('/profile/update_pin', methods=['POST'])
+@enterprise_required
+def ent_update_pin():
+    active_biz = session.get('active_business')
+    new_pin = request.form.get('new_pin')
+    confirm_pin = request.form.get('confirm_pin')
+    
+    if not active_biz:
+        flash("No active business session found.", "error")
+        return redirect(url_for('enterprise.ent_dashboard'))
+        
+    if new_pin != confirm_pin:
+        flash("New PINs do not match.", "error")
+        return redirect(url_for('enterprise.ent_profile'))
+        
+    if not (new_pin and new_pin.isdigit() and len(new_pin) == 4):
+        flash("PIN must be exactly 4 digits.", "error")
+        return redirect(url_for('enterprise.ent_profile'))
+        
+    svc = _svc()
+    try:
+        ok = svc.setup_business_pin(session['user'], active_biz, new_pin)
+        if ok:
+            flash("Security PIN successfully updated.", "success")
+            # Clear the old unlock session to force using the new PIN next time
+            session.pop(f"business_unlocked_{active_biz}", None)
+        else:
+            flash("Failed to update Security PIN.", "error")
+    except Exception as e:
+        flash(f"Error updating PIN: {e}", "error")
+        
+    return redirect(url_for('enterprise.ent_profile'))
+
 # ── CSV Export ────────────────────────────────────────────────────────────────
 @enterprise_bp.route('/export/<format>')
 @enterprise_required

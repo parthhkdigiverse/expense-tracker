@@ -1318,31 +1318,6 @@ def delete_enterprise_bank(bank_id):
         flash(f"Error: {str(e)}", 'error')
     return redirect(url_for('banks'))
 
-@app.route('/edit_enterprise_bank/<bank_id>', methods=['POST'])
-def edit_enterprise_bank(bank_id):
-    if 'user' not in session: return redirect(url_for('login'))
-    try:
-        account_type = request.form.get('account_type', 'Current')
-        if account_type not in ('Current', 'CC/OD'):
-            flash('Invalid account type.', 'error')
-            return redirect(url_for('banks'))
-        data = {
-            'business_name': request.form.get('business_name'),
-            'bank_name': request.form.get('bank_name'),
-            'account_number': request.form.get('account_number'),
-            'ifsc_code': request.form.get('ifsc_code'),
-            'opening_balance': float(request.form.get('opening_balance', 0) or 0),
-            'account_type': account_type
-        }
-        db_service = SupabaseService(get_supabase_client(session.get('access_token')))
-        if db_service.update_enterprise_bank(session['user'], bank_id, data):
-            flash('Business account updated!', 'success')
-        else:
-            flash('Failed to update business account.', 'error')
-    except Exception as e:
-        flash(f"Error: {str(e)}", 'error')
-    return redirect(url_for('banks'))
-
 
 # ---------------------------------------------------------
 # Error Handlers
