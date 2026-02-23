@@ -17,6 +17,13 @@ def get_supabase_client(token=None):
         )
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
+def get_supabase_service_client():
+    """Create a Supabase client bypassing RLS using the Service Role Key."""
+    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    if not SUPABASE_URL or not service_key:
+        return None
+    return create_client(SUPABASE_URL, service_key)
+
 DEFAULT_CATEGORIES = [
     'Food', 'Transport', 'Utilities', 'Entertainment', 'Shopping',
     'Health', 'Travel', 'Education', 'Salary', 'Freelance', 'Investment', 'Other'
@@ -58,6 +65,295 @@ class BaseService:
 class SupabaseService(BaseService):
     def __init__(self, client):
         self.db = client
+
+    def __init__(self, client):
+        self.db = client
+
+    # ── Admin Methods (Require Service Role Client) ───────────────────────────
+    def get_all_users(self) -> List[Dict[str, Any]]:
+        """Fetch all user profiles, bypassing RLS. Must be run with service client."""
+        try:
+            res = self.db.table('profiles').select('*').order('created_at', desc=True).execute()
+            return res.data if res.data else []
+        except Exception as e:
+            print(f"[get_all_users] Error: {e}")
+            return []
+
+    def get_total_enterprises(self) -> int:
+        """Fetch total number of enterprise organizations."""
+        try:
+            res = self.db.table('ent_organizations').select('id', count='exact').execute()
+            return res.count if res.count is not None else len(res.data)
+        except Exception as e:
+            print(f"[get_total_enterprises] Error: {e}")
+            return 0
+            
+    def check_is_admin(self, user_id: str) -> bool:
+        """Check if a specific user is an admin using standard client."""
+        try:
+            res = self.db.table('profiles').select('is_admin').eq('id', user_id).execute()
+            if res.data and len(res.data) > 0:
+                return res.data[0].get('is_admin', False)
+            return False
+        except Exception as e:
+            print(f"[check_is_admin] Error: {e}")
+            return False
+
+    def toggle_admin_status(self, target_user_id: str, new_status: bool) -> bool:
+        """Toggle an account's admin status. Must be run with service client."""
+        try:
+            res = self.db.table('profiles').update({'is_admin': new_status}).eq('id', target_user_id).execute()
+            return len(res.data) > 0
+        except Exception as e:
+            print(f"[toggle_admin_status] Error: {e}")
+            return False
+
+    def log_admin_action(self, admin_id: str, action: str, target_table: str, target_record_id: str, old_data: dict = None, new_data: dict = None) -> bool:
+        """Logs admin actions securely by bypassing RLS."""
+        try:
+            svc_client = get_supabase_service_client()
+            if not svc_client:
+                print("[log_admin_action] Error: Service client unavailable.")
+                return False
+                
+            payload = {
+                "admin_id": admin_id,
+                "action": action,
+                "target_table": target_table,
+                "target_record_id": target_record_id,
+                "old_data": old_data,
+                "new_data": new_data
+            }
+            svc_client.table('admin_audit_logs').insert(payload).execute()
+            return True
+        except Exception as e:
+            print(f"[log_admin_action] Error: {e}")
+            return False
+
+    def update_user_profile(self, user_id: str, data: dict) -> bool:
+        """Update a user's full name or currency. Must be run with service client."""
+        try:
+            svc_client = get_supabase_service_client()
+            if not svc_client: return False
+            res = svc_client.table('profiles').update(data).eq('id', user_id).execute()
+            return len(res.data) > 0
+        except Exception as e:
+            print(f"[update_user_profile] Error: {e}")
+            return False
+
+    def toggle_user_suspension(self, user_id: str, suspend_status: bool) -> bool:
+        """Toggle an account's suspension status. Must be run with service client."""
+        try:
+            svc_client = get_supabase_service_client()
+            if not svc_client: return False
+            res = svc_client.table('profiles').update({'is_suspended': suspend_status}).eq('id', user_id).execute()
+            return len(res.data) > 0
+        except Exception as e:
+            print(f"[toggle_user_suspension] Error: {e}")
+            return False
+
+    def delete_user_completely(self, user_id: str) -> bool:
+        """Hard deletes a user using the Supabase Admin API. This wipes all linked data via CASCADE."""
+        try:
+            svc_client = get_supabase_service_client()
+            if not svc_client: return False
+            # Call the admin.delete_user endpoint from the supabase client
+            svc_client.auth.admin.delete_user(user_id)
+            return True
+        except Exception as e:
+            print(f"[delete_user_completely] Error: {e}")
+            return False
+
+    def get_all_organizations(self) -> list:
+        """Fetches all organizations using bypass service client, including member counts."""
+        try:
+            svc_client = get_supabase_service_client()
+            if not svc_client: return []
+            
+            # Since Supabase rest API doesn't do complex joins natively well for counts,
+            # we fetch all orgs, and then all members, and map them in python.
+            org_res = svc_client.table('ent_organizations').select('*').execute()
+            # Fetch all members to count them per org
+            mem_res = svc_client.table('ent_members').select('organization_id').execute()
+            
+            orgs = org_res.data or []
+            members = mem_res.data or []
+            
+            member_counts = {}
+            for m in members:
+                org_id = m.get('organization_id')
+                if org_id:
+                    member_counts[org_id] = member_counts.get(org_id, 0) + 1
+                
+            for o in orgs:
+                o['member_count'] = member_counts.get(o['id'], 0)
+                
+            return orgs
+        except Exception as e:
+            print(f"[get_all_organizations] Error: {e}")
+            return []
+
+    def get_organization_members(self, org_id: str) -> list:
+        """Fetches all members for an org, joined manually with their profile data."""
+        try:
+            svc_client = get_supabase_service_client()
+            if not svc_client: return []
+            
+            # Fetch members
+            res = svc_client.table('ent_members').select('*').eq('organization_id', org_id).execute()
+            members = res.data or []
+            
+            if not members:
+                return []
+                
+            # Fetch profiles for those user_ids
+            user_ids = [m['user_id'] for m in members]
+            prof_res = svc_client.table('profiles').select('id, full_name, email, is_suspended').in_('id', user_ids).execute()
+            profiles_map = {p['id']: p for p in (prof_res.data or [])}
+            
+            # Attach profile data identically to how UI expects it
+            for m in members:
+                m['profiles'] = profiles_map.get(m['user_id'], {})
+                
+            return members
+        except Exception as e:
+            print(f"[get_organization_members] Error: {e}")
+            return []
+
+    def delete_organization_completely(self, org_id: str) -> bool:
+        """Hard deletes an organization and all its children via CASCADE."""
+        try:
+            svc_client = get_supabase_service_client()
+            if not svc_client: return False
+            res = svc_client.table('ent_organizations').delete().eq('id', org_id).execute()
+            return len(res.data) > 0
+        except Exception as e:
+            print(f"[delete_organization_completely] Error: {e}")
+            return False
+
+    # ── Global Ledger (Admin) ──────────────────────────────────────────────────
+    def get_all_global_transactions(self) -> list:
+        """Fetches all revenue and expenses globally, mapped together."""
+        try:
+            svc_client = get_supabase_service_client()
+            if not svc_client: return []
+            
+            # Fetch revenues
+            rev_res = svc_client.table('ent_revenue').select('*, ent_organizations(name)').execute()
+            revenues = rev_res.data or []
+            for r in revenues:
+                r['type'] = 'revenue'
+                r['category'] = r.get('status', 'Completed') # Map status as category for UI consistency
+                r['business_name'] = r.get('ent_organizations', {}).get('name', 'Unknown')
+                
+            # Fetch expenses
+            exp_res = svc_client.table('ent_expenses').select('*, ent_organizations(name)').execute()
+            expenses = exp_res.data or []
+            for e in expenses:
+                e['type'] = 'expense'
+                e['business_name'] = e.get('ent_organizations', {}).get('name', 'Unknown')
+                
+            # Merge and sort
+            all_transactions = revenues + expenses
+            all_transactions.sort(key=lambda x: x.get('date', ''), reverse=True)
+            
+            return all_transactions
+        except Exception as e:
+            print(f"[get_all_global_transactions] Error: {e}")
+            return []
+
+    def update_global_transaction(self, trans_id: str, trans_type: str, data: dict) -> bool:
+        """Updates a global transaction (revenue or expense)."""
+        try:
+            svc_client = get_supabase_service_client()
+            if not svc_client: return False
+            
+            table = 'ent_revenue' if trans_type == 'revenue' else 'ent_expenses'
+            res = svc_client.table(table).update(data).eq('id', trans_id).execute()
+            return len(res.data) > 0
+        except Exception as e:
+            print(f"[update_global_transaction] Error: {e}")
+            return False
+
+    def delete_global_transaction(self, trans_id: str, trans_type: str) -> bool:
+        """Deletes a global transaction (revenue or expense)."""
+        try:
+            svc_client = get_supabase_service_client()
+            if not svc_client: return False
+            
+            table = 'ent_revenue' if trans_type == 'revenue' else 'ent_expenses'
+            res = svc_client.table(table).delete().eq('id', trans_id).execute()
+            return len(res.data) > 0
+        except Exception as e:
+            print(f"[delete_global_transaction] Error: {e}")
+            return False
+
+    # ── Global Holdings & Staff (Admin) ─────────────────────────────────────────
+    def get_global_holdings(self) -> list:
+        """Fetches all holding payments globally with business name and user profiles."""
+        try:
+            svc_client = get_supabase_service_client()
+            if not svc_client: return []
+            
+            # Fetch holdings
+            res = svc_client.table('ent_holding_payments').select('*, ent_organizations(name)').order('created_at', desc=True).execute()
+            holdings = res.data or []
+            
+            if not holdings:
+                return []
+                
+            # Manually join to Profiles for creator details
+            user_ids = [h['created_by'] for h in holdings if h.get('created_by')]
+            prof_res = svc_client.table('profiles').select('id, full_name, email').in_('id', user_ids).execute()
+            profiles_map = {p['id']: p for p in (prof_res.data or [])}
+            
+            for h in holdings:
+                h['profiles'] = profiles_map.get(h.get('created_by'), {})
+                h['business_name'] = h.get('ent_organizations', {}).get('name', 'Unknown')
+                
+            return holdings
+        except Exception as e:
+            print(f"[get_global_holdings] Error: {e}")
+            return []
+
+    def delete_global_holding(self, holding_id: str) -> bool:
+        """Hard deletes a global holding payment."""
+        try:
+            svc_client = get_supabase_service_client()
+            if not svc_client: return False
+            res = svc_client.table('ent_holding_payments').delete().eq('id', holding_id).execute()
+            return len(res.data) > 0
+        except Exception as e:
+            print(f"[delete_global_holding] Error: {e}")
+            return False
+
+    def get_global_staff(self) -> list:
+        """Fetches all staff globally mapped to their business names."""
+        try:
+            svc_client = get_supabase_service_client()
+            if not svc_client: return []
+            
+            res = svc_client.table('ent_staff').select('*, ent_organizations(name)').order('created_at', desc=True).execute()
+            staff_list = res.data or []
+            
+            for s in staff_list:
+                s['business_name'] = s.get('ent_organizations', {}).get('name', 'Unknown')
+                
+            return staff_list
+        except Exception as e:
+            print(f"[get_global_staff] Error: {e}")
+            return []
+
+    def delete_global_staff(self, staff_id: str) -> bool:
+        """Hard deletes a staff record globally."""
+        try:
+            svc_client = get_supabase_service_client()
+            if not svc_client: return False
+            res = svc_client.table('ent_staff').delete().eq('id', staff_id).execute()
+            return len(res.data) > 0
+        except Exception as e:
+            print(f"[delete_global_staff] Error: {e}")
+            return False
 
     # ── Enterprise Access (Secure Double Login) ───────────────────────────────
     def verify_business_pin(self, user_id: str, business_name: str, pin: str) -> bool:

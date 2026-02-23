@@ -341,8 +341,8 @@ body {
 }
 
 .btn-danger {
-    background-color: #FEF2F2;
-    color: var(--accent-danger);
+    background-color: var(--accent-danger);
+    color: white;
     padding: 0.5rem 1rem;
     border-radius: var(--radius-small);
     font-size: 0.875rem;
@@ -353,8 +353,9 @@ body {
 }
 
 .btn-danger:hover {
-    background-color: #FEE2E2;
-    border-color: #FECACA;
+    background-color: #B91C1C;
+    color: white;
+    border-color: #991B1B;
 }
 
 .btn-sm {

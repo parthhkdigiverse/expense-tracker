@@ -1,0 +1,30 @@
+{% extends "admin/layout.html" %}
+
+{% block content %}
+<div class="dashboard-header">
+    <div class="header-content">
+        <h1>Global System Metrics</h1>
+    </div>
+</div>
+
+<div class="admin-stats-grid">
+    <div class="admin-stat-card">
+        <h3 style="color: var(--text-secondary); margin-bottom: 10px;">Total Registered Users</h3>
+        <div class="admin-stat-value">{{ total_users }}</div>
+        <p style="font-size: 0.85em; color: var(--text-secondary);">Across all personal and enterprise accounts</p>
+    </div>
+
+    <div class="admin-stat-card">
+        <h3 style="color: var(--text-secondary); margin-bottom: 10px;">Total Businesses</h3>
+        <div class="admin-stat-value">{{ total_enterprises }}</div>
+        <p style="font-size: 0.85em; color: var(--text-secondary);">Active enterprise accounts created</p>
+    </div>
+</div>
+
+<div class="ent-card" style="margin-top: 30px;">
+    <h2>Quick Actions</h2>
+    <div style="margin-top: 20px; display: flex; gap: 15px;">
+        <a href="{{ url_for('admin.users') }}" class="btn-primary" style="text-decoration: none;">Manage All Users</a>
+    </div>
+</div>
+{% endblock %}

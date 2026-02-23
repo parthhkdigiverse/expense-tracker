@@ -12,6 +12,7 @@ from flask_mail import Mail, Message
 from utils import generate_pdf_report, send_email_report
 from blueprints.enterprise import enterprise_bp
 from blueprints.database_service import SupabaseService, get_supabase_client
+from blueprints.admin import admin_bp
 
 load_dotenv()
 
@@ -61,6 +62,7 @@ REFRESH_THRESHOLD = int(os.getenv("REFRESH_THRESHOLD_SECONDS", 120))  # seconds 
 
 # Register Blueprints
 app.register_blueprint(enterprise_bp, url_prefix='/enterprise')
+app.register_blueprint(admin_bp, url_prefix='/admin')
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     print("CRITICAL: SUPABASE_URL and SUPABASE_KEY must be set in .env")
@@ -89,6 +91,17 @@ def manage_session_logic():
         return
 
     if 'user' in session:
+        # Check suspension status globally for max security
+        try:
+            if supabase:
+                prof_res = supabase.table('profiles').select('is_suspended').eq('id', session['user']).execute()
+                if prof_res.data and prof_res.data[0].get('is_suspended', False):
+                    session.clear()
+                    flash('Your account has been suspended. Please contact support.', 'error')
+                    return redirect(url_for('login'))
+        except Exception as e:
+            print(f"Global suspension check failed: {e}")
+            
         now = datetime.datetime.now(datetime.timezone.utc)
         
         # 1. Check Inactivity Timeout
@@ -264,7 +277,7 @@ def login():
 
         # 1. Lookup email from username
         try:
-            user_res = supabase.table('profiles').select('email, id').eq('username', username).execute()
+            user_res = supabase.table('profiles').select('email, id, is_admin, is_suspended').eq('username', username).execute()
         except Exception as query_e:
             flash(f"User Lookup Error: {str(query_e)}", 'error')
             return render_template('login.html')
@@ -274,6 +287,9 @@ def login():
             return render_template('login.html')
             
         email = user_res.data[0]['email']
+        is_admin = user_res.data[0].get('is_admin', False)
+        is_suspended = user_res.data[0].get('is_suspended', False)
+        
         if not email:
             flash('Account configuration error.', 'error')
             return render_template('login.html')
@@ -285,12 +301,19 @@ def login():
                 "password": password
             })
             
+            if is_suspended:
+                supabase.auth.sign_out()
+                session.clear()
+                flash('Your account has been suspended. Please contact support.', 'error')
+                return redirect(url_for('login'))
+            
             # 3. Secure Session Setup
             session.clear() # Prevent session fixation
             session.permanent = True # Enable timeout
             
             session['user'] = res.user.id
             session['user_email'] = email
+            session['is_admin'] = is_admin
             session['access_token'] = res.session.access_token
             session['refresh_token'] = res.session.refresh_token
             session['access_expires_at'] = res.session.expires_at # Auto-refresh trigger

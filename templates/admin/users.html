@@ -1,0 +1,147 @@
+{% extends "admin/layout.html" %}
+
+{% block content %}
+<div class="dashboard-header">
+    <div class="header-content">
+        <h1>User Management</h1>
+    </div>
+</div>
+
+<div class="admin-table-container " style="margin-top: 20px;">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Email Address</th>
+                <th>Full Name</th>
+                <th>Joined</th>
+                <th>Role</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in users %}
+            <tr>
+                <td style="color: var(--text-primary); font-weight: 500;">{{ u.email }}</td>
+                <td>{{ u.full_name or "N/A" }}</td>
+                <td>{{ u.created_at[:10] if u.created_at else "Unknown" }}</td>
+                <td>
+                    {% if u.is_admin %}
+                    <span class="badge-admin">Admin</span>
+                    {% else %}
+                    <span class="badge-user">User</span>
+                    {% endif %}
+                    {% if u.is_suspended %}
+                    <span class="badge-admin"
+                        style="background: rgba(220, 38, 38, 0.2); color: #dc2626; margin-left: 5px;">Suspended</span>
+                    {% endif %}
+                </td>
+                <td style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    {% if u.id != session.get('user') %}
+
+                    <!-- Edit Button -->
+                    <button class="btn-primary"
+                        style="padding: 4px 10px; border-radius: 4px; font-size: 0.85em; background: rgba(124, 92, 252, 0.1); color: var(--brand-start); border: 1px solid var(--brand-start);"
+                        onclick="openEditModal('{{ u.id }}', '{{ u.full_name or '' }}', '{{ u.currency or 'USD' }}')">Edit</button>
+
+                    <!-- Role Toggle -->
+                    <form method="POST" action="{{ url_for('admin.toggle_role', user_id=u.id) }}"
+                        style="display:inline;">
+                        {% if u.is_admin %}
+                        <input type="hidden" name="action" value="demote">
+                        <button type="submit" class="btn-danger-link"
+                            style="border: 1px solid rgba(255, 0, 0, 0.3); padding: 4px 10px; border-radius: 4px; font-size: 0.85em;"
+                            onclick="return confirm('Demote this admin to a regular user?');">Revoke Admin</button>
+                        {% else %}
+                        <input type="hidden" name="action" value="promote">
+                        <button type="submit" class="btn-primary"
+                            style="background: transparent; border: 1px solid #FFD700; color: #FFD700; padding: 4px 10px; border-radius: 4px; font-size: 0.85em;"
+                            onclick="return confirm('Promote this user to system admin?');">Make Admin</button>
+                        {% endif %}
+                    </form>
+
+                    <!-- Suspend Toggle -->
+                    <form method="POST" action="{{ url_for('admin.suspend_user', user_id=u.id) }}"
+                        style="display:inline;">
+                        {% if u.is_suspended %}
+                        <input type="hidden" name="action" value="unsuspend">
+                        <button type="submit" class="btn-primary"
+                            style="background: rgba(217, 119, 6, 0.2); border: 1px solid #d97706; color: #FFF; padding: 4px 10px; border-radius: 4px; font-size: 0.85em;"
+                            onclick="return confirm('Restore this user account?');">Restore</button>
+                        {% else %}
+                        <input type="hidden" name="action" value="suspend">
+                        <button type="submit" class="btn-primary"
+                            style="background: transparent; border: 1px solid #d97706; color: #d97706; padding: 4px 10px; border-radius: 4px; font-size: 0.85em;"
+                            onclick="return confirm('Suspend this user account? They will be unable to log in.');">Suspend</button>
+                        {% endif %}
+                    </form>
+
+                    <!-- Delete Button -->
+                    <form method="POST" action="{{ url_for('admin.delete_user', user_id=u.id) }}"
+                        style="display:inline;">
+                        <button type="submit" class="btn-danger"
+                            style="padding: 4px 10px; border-radius: 4px; font-size: 0.85em;"
+                            onclick="return confirm('Are you absolutely sure? This will wipe all their personal and business data forever.');">Delete</button>
+                    </form>
+
+                    {% else %}
+                    <span style="color: var(--text-secondary); font-style: italic; font-size: 0.85em;">Current User
+                        (You)</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5" style="text-align: center; padding: 40px; color: var(--text-secondary);">No users found.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Edit User Modal -->
+<div id="editUserModal" class="modal">
+    <div class="modal-content">
+        <span class="close-modal" onclick="closeEditModal()">&times;</span>
+        <h2>Edit User Profile</h2>
+        <form id="editUserForm" method="POST" action="">
+            <div class="form-group">
+                <label for="full_name">Full Name</label>
+                <input type="text" id="full_name" name="full_name" placeholder="Leave blank to keep unchanged">
+            </div>
+            <div class="form-group">
+                <label for="currency">Currency Code (e.g., USD)</label>
+                <input type="text" id="currency" name="currency" maxlength="3" style="text-transform: uppercase;">
+            </div>
+            <div class="form-actions" style="margin-top: 20px;">
+                <button type="button" class="btn-danger-link" onclick="closeEditModal()">Cancel</button>
+                <button type="submit" class="btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    function openEditModal(userId, currentName, currentCurrency) {
+        const modal = document.getElementById('editUserModal');
+        const form = document.getElementById('editUserForm');
+        form.action = "/admin/users/edit/" + userId;
+
+        document.getElementById('full_name').value = currentName === 'None' ? '' : currentName;
+        document.getElementById('currency').value = currentCurrency === 'None' ? 'USD' : currentCurrency;
+
+        modal.style.display = "flex";
+    }
+
+    function closeEditModal() {
+        document.getElementById('editUserModal').style.display = "none";
+    }
+
+    window.onclick = function (event) {
+        const modal = document.getElementById('editUserModal');
+        if (event.target == modal) {
+            closeEditModal();
+        }
+    }
+</script>
+{% endblock %}

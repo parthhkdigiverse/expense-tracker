@@ -1,0 +1,52 @@
+{% extends "admin/layout.html" %}
+
+{% block content %}
+<div class="dashboard-header" style="margin-bottom: 20px;">
+    <div class="header-content">
+        <h1>Global Staff Directory</h1>
+        <p style="color: var(--text-secondary); margin-top: 5px;">Directory of all employees inside organizations.</p>
+    </div>
+</div>
+
+<div class="admin-table-container">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Date Added</th>
+                <th>Business Name</th>
+                <th>Staff Name</th>
+                <th>Designation</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for employee in staff %}
+            <tr>
+                <td>{{ employee.created_at[:10] }}</td>
+                <td style="font-weight: 500;">{{ employee.business_name }}</td>
+                <td style="font-weight: 600;">{{ employee.name }}</td>
+                <td>
+                    <span
+                        style="background: rgba(124, 92, 252, 0.1); color: var(--brand-start); padding: 4px 10px; border-radius: 12px; font-size: 0.85em;">
+                        {{ employee.designation or "Unknown Role" }}
+                    </span>
+                </td>
+                <td style="display: flex; gap: 8px;">
+                    <form method="POST" action="{{ url_for('admin.delete_staff', staff_id=employee.id) }}"
+                        style="display:inline;">
+                        <button type="submit" class="btn-danger"
+                            style="padding: 4px 10px; border-radius: 4px; font-size: 0.85em;"
+                            onclick="return confirm('WARNING: Are you sure you want to permanently omit this staff member from the enterprise database? This cannot be undone.');">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5" style="text-align: center; padding: 40px; color: var(--text-secondary);">No active staff
+                    recorded on the platform.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
