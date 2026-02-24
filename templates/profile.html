@@ -40,22 +40,63 @@
                 <label>Avatar</label>
                 <div style="display: flex; gap: 10px; align-items: center;">
                     <button type="button" class="btn-secondary"
-                        onclick="document.getElementById('avatar_file').click()">Add Photo</button>
+                        onclick="document.getElementById('avatar_raw').click()">Add Photo</button>
                     <span id="file-name" style="color: var(--text-secondary); font-size: 0.9rem;"></span>
+                    <img id="avatar-preview"
+                        style="display:none; width:40px; height:40px; border-radius:50%; object-fit:cover; border:1px solid var(--border-color);">
                 </div>
-                <!-- Hidden File Input -->
-                <input type="file" id="avatar_file" name="avatar_file" accept="image/*" style="display: none;"
-                    onchange="showFileName(this)">
+                <!-- Raw file picker (user clicks this, we compress before submit) -->
+                <input type="file" id="avatar_raw" accept="image/*" style="display: none;"
+                    onchange="compressAvatar(this)">
+                <!-- This hidden input carries the compressed file to the server -->
+                <input type="file" id="avatar_file" name="avatar_file" style="display: none;">
 
                 <!-- Hidden Avatar URL to preserve value -->
                 <input type="hidden" id="avatar_url" name="avatar_url" value="{{ profile.get('avatar_url', '') }}">
             </div>
 
             <script>
-                function showFileName(input) {
-                    if (input.files && input.files[0]) {
-                        document.getElementById('file-name').textContent = input.files[0].name;
-                    }
+                function compressAvatar(input) {
+                    if (!input.files || !input.files[0]) return;
+                    const file = input.files[0];
+                    document.getElementById('file-name').textContent = file.name;
+
+                    const MAX_SIZE = 400; // max width/height in px
+                    const QUALITY = 0.7;  // JPEG quality (0-1)
+
+                    const reader = new FileReader();
+                    reader.onload = function (e) {
+                        const img = new Image();
+                        img.onload = function () {
+                            // Calculate scaled dimensions
+                            let w = img.width, h = img.height;
+                            if (w > h) { if (w > MAX_SIZE) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; } }
+                            else { if (h > MAX_SIZE) { w = Math.round(w * MAX_SIZE / h); h = MAX_SIZE; } }
+
+                            // Draw to canvas and compress
+                            const canvas = document.createElement('canvas');
+                            canvas.width = w; canvas.height = h;
+                            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+
+                            canvas.toBlob(function (blob) {
+                                // Replace the hidden file input with the compressed blob
+                                const compressed = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
+                                const dt = new DataTransfer();
+                                dt.items.add(compressed);
+                                document.getElementById('avatar_file').files = dt.files;
+
+                                // Show preview
+                                const preview = document.getElementById('avatar-preview');
+                                preview.src = URL.createObjectURL(blob);
+                                preview.style.display = 'block';
+
+                                const sizeKB = (blob.size / 1024).toFixed(0);
+                                document.getElementById('file-name').textContent = file.name + ' (' + sizeKB + ' KB)';
+                            }, 'image/jpeg', QUALITY);
+                        };
+                        img.src = e.target.result;
+                    };
+                    reader.readAsDataURL(file);
                 }
             </script>
 

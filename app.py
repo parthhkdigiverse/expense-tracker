@@ -790,8 +790,9 @@ def profile():
                     file_content = file.read()
                     file_ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else 'jpg'
                     file_path = f"{session['user']}/avatar_{int(datetime.datetime.now().timestamp())}.{file_ext}"
-                    get_db(token).storage.from_('avatars').upload(file_path, file_content, {"content-type": f"image/{file_ext}"})
-                    avatar_url = get_db(token).storage.from_('avatars').get_public_url(file_path)
+                    db = get_db(token)
+                    db.storage.from_('avatars').upload(file_path, file_content, {"content-type": f"image/{file_ext}"})
+                    avatar_url = db.storage.from_('avatars').get_public_url(file_path)
                 except Exception as e:
                     flash(f"Error uploading image: {str(e)}", 'error')
 
