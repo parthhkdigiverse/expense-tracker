@@ -884,6 +884,45 @@ def delete_bank(bank_id):
         flash(f"Error: {str(e)}", 'error')
     return redirect(url_for('banks'))
 
+@app.route('/add_enterprise_bank', methods=['POST'])
+def add_enterprise_bank():
+    if 'user' not in session: return redirect(url_for('login'))
+    try:
+        token = session.get('access_token')
+        db_service = SupabaseService(get_db(token))
+        data = {
+            'business_name':   request.form.get('business_name'),
+            'bank_name':       request.form.get('bank_name'),
+            'account_number':  request.form.get('account_number'),
+            'ifsc_code':       request.form.get('ifsc_code'),
+            'opening_balance': float(request.form.get('opening_balance', 0)),
+            'account_type':    request.form.get('account_type', 'Current'),
+        }
+        success = db_service.add_enterprise_bank(session['user'], data)
+        if success:
+            flash('Business account added successfully!', 'success')
+        else:
+            flash('Failed to add business account.', 'error')
+    except Exception as e:
+        flash(f"Error: {str(e)}", 'error')
+    return redirect(url_for('banks'))
+
+@app.route('/delete_enterprise_bank/<bank_id>')
+def delete_enterprise_bank(bank_id):
+    if 'user' not in session: return redirect(url_for('login'))
+    try:
+        token = session.get('access_token')
+        db_service = SupabaseService(get_db(token))
+        success = db_service.delete_enterprise_bank(session['user'], bank_id)
+        if success:
+            flash('Business account removed.', 'info')
+        else:
+            flash('Failed to remove business account.', 'error')
+    except Exception as e:
+        flash(f"Error: {str(e)}", 'error')
+    return redirect(url_for('banks'))
+
+
 @app.route('/set_budget', methods=['POST'])
 def set_budget():
     if 'user' not in session: return redirect(url_for('login'))
