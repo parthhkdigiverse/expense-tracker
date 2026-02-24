@@ -710,17 +710,16 @@ def expenses():
 @app.route('/banks')
 def banks():
     if 'user' not in session: return redirect(url_for('login'))
-    try:
-        token = session.get('access_token')
-        db_service = SupabaseService(get_supabase_client(token))
+    token = session.get('access_token')
+    banks = []
+    enterprise_banks = []
 
-        # 1. Personal (Savings) banks from Supabase
+    # 1. Personal (Savings) banks
+    try:
+        db_service = SupabaseService(get_supabase_client(token))
         banks = db_service.get_personal_banks(session['user'])
 
-        # 2. Enterprise (Current/CC/OD) banks from Supabase enterprise_bank_accounts
-        enterprise_banks = db_service.get_enterprise_banks(session['user'])
-
-        # 3. Calculate running balance for personal banks
+        # Calculate running balance for personal banks
         tx_res = get_db(token).table('expenses').select('amount, type, bank_account_id').eq('user_id', session['user']).not_.is_('bank_account_id', 'null').execute()
         transactions = tx_res.data
         for bank in banks:
@@ -731,8 +730,15 @@ def banks():
                 if tx['type'] == 'income': current_bal += amount
                 elif tx['type'] == 'expense': current_bal -= amount
             bank['current_balance'] = current_bal
+    except Exception as e:
+        print(f"Error loading personal banks: {e}")
+        flash(f"Error loading personal banks: {str(e)}", 'error')
 
-        # 4. Calculate running balance for enterprise banks
+    # 2. Enterprise (Current/CC/OD) banks
+    try:
+        db_service = SupabaseService(get_supabase_client(token))
+        enterprise_banks = db_service.get_enterprise_banks(session['user'])
+
         ent_bank_ids = [b['id'] for b in enterprise_banks]
         if ent_bank_ids:
             ent_rev_res = get_db(token).table('ent_revenue').select('amount, bank_account_id').in_('bank_account_id', ent_bank_ids).execute()
@@ -743,24 +749,20 @@ def banks():
             
             for ent_bank in enterprise_banks:
                 current_bal = float(ent_bank.get('opening_balance', 0))
-                
-                # Add all income
                 for rev in ent_revs:
                     if rev.get('bank_account_id') == ent_bank['id']:
                         current_bal += float(rev['amount'])
-                        
-                # Subtract all expenses
                 for exp in ent_exps:
                     if exp.get('bank_account_id') == ent_bank['id']:
                         current_bal -= float(exp['amount'])
-                        
                 ent_bank['current_balance'] = current_bal
         else:
             for ent_bank in enterprise_banks:
                 ent_bank['current_balance'] = float(ent_bank.get('opening_balance', 0))
     except Exception as e:
-        flash(f"Error: {str(e)}", 'error')
-        banks, enterprise_banks = [], []
+        print(f"Error loading enterprise banks: {e}")
+        flash(f"Error loading enterprise banks: {str(e)}", 'error')
+
     return render_template('banks.html', banks=banks, enterprise_banks=enterprise_banks)
 
 @app.route('/profile', methods=['GET', 'POST'])
