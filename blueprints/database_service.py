@@ -3,26 +3,28 @@ from typing import List, Dict, Any, Optional
 from supabase import create_client, ClientOptions
 
 # ── Supabase Config ────────────────────────────────────────────────────────────
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+# Note: Do NOT read env vars at module level — dotenv may not be loaded yet.
 
 def get_supabase_client(token=None):
     """Create a Supabase client, optionally scoped to a user JWT."""
-    if not SUPABASE_URL or not SUPABASE_KEY:
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    if not url or not key:
         return None
     if token:
         return create_client(
-            SUPABASE_URL, SUPABASE_KEY,
+            url, key,
             options=ClientOptions(headers={"Authorization": f"Bearer {token}"})
         )
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    return create_client(url, key)
 
 def get_supabase_service_client():
     """Create a Supabase client bypassing RLS using the Service Role Key."""
+    url = os.getenv("SUPABASE_URL")
     service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    if not SUPABASE_URL or not service_key:
+    if not url or not service_key:
         return None
-    return create_client(SUPABASE_URL, service_key)
+    return create_client(url, service_key)
 
 DEFAULT_CATEGORIES = [
     'Food', 'Transport', 'Utilities', 'Entertainment', 'Shopping',
