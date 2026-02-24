@@ -1,45 +1,50 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
+from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
+from functools import wraps
+from decimal import Decimal
 from supabase import create_client, Client, ClientOptions
 import os
 import datetime
 from datetime import timedelta
 from dotenv import load_dotenv
 from flask_mail import Mail, Message
-
 from utils import generate_pdf_report, send_email_report
+from blueprints.enterprise import enterprise_bp
+from blueprints.database_service import SupabaseService, get_supabase_client
+from blueprints.admin import admin_bp
 
 load_dotenv()
 
 app = Flask(__name__)
+# Crucial for Vercel: Tell Flask it is behind a secure proxy to fix HTTPS redirects & cookies
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 # ---------------------------------------------------------
 # Configuration & Security through .env
 # ---------------------------------------------------------
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "fallback-dev-secret")
+app.config['SUPABASE_URL'] = os.getenv("SUPABASE_URL")
+app.config['SUPABASE_KEY'] = os.getenv("SUPABASE_KEY")
 
 
 # ---------------------------------------------------------
-# Session Storage (Client Side Cookie)
+# Session Storage (Stateless Client-Side Signed Cookies)
 # ---------------------------------------------------------
-# Flask uses client-side cookies by default when secret_key is set.
-# No extra config needed for storage type.
-
-
-# Security Cookie Flags
-is_production = os.getenv('FLASK_ENV') == 'production'
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['SESSION_COOKIE_SECURE'] = is_production 
+# Removed filesystem session to support Vercel (Serverless/Stateless)
+app.config.update(
+    SESSION_COOKIE_SECURE=True, # Require HTTPS (handled by Vercel/Localhost)
+    SESSION_COOKIE_HTTPONLY=True, # Prevent JS access
+    SESSION_COOKIE_SAMESITE='Lax',
+)
 
 # Timeouts
 timeout_minutes = int(os.getenv("SESSION_TIMEOUT_MINUTES", 10))
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=timeout_minutes)
-# Refresh session expiry on every request
-app.config['SESSION_REFRESH_EACH_REQUEST'] = True
-
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7) 
+# Note: internal logic uses timeout_minutes for inactivity, cookie lifetime is 7 days to avoid frequent logins if active.
 
 # Initialize Extensions
-
+# server_session = Session(app) # Removed for stateless auth
 
 # Mail Configuration
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
@@ -53,7 +58,11 @@ mail = Mail(app)
 # Supabase Configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-REFRESH_THRESHOLD = int(os.getenv("REFRESH_THRESHOLD_SECONDS", 120)) # 2 minutes
+REFRESH_THRESHOLD = int(os.getenv("REFRESH_THRESHOLD_SECONDS", 120))  # seconds before expiry to trigger refresh
+
+# Register Blueprints
+app.register_blueprint(enterprise_bp, url_prefix='/enterprise')
+app.register_blueprint(admin_bp, url_prefix='/admin')
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     print("CRITICAL: SUPABASE_URL and SUPABASE_KEY must be set in .env")
@@ -74,7 +83,7 @@ def manage_session_logic():
     3. Update Last Activity
     """
     # Skip session logic for auth routes
-    if request.endpoint in ['login', 'register','verify','login_with_code','magic_login', 'static', 'forgot_password', 'reset_password']:
+    if request.endpoint in ['login', 'register','verify','login_with_code','magic_login', 'static', 'forgot_credentials', 'reset_password']:
         return
     
     # Skip session logic for None endpoint (e.g. favicon.ico)
@@ -82,6 +91,17 @@ def manage_session_logic():
         return
 
     if 'user' in session:
+        # Check suspension status globally for max security
+        try:
+            if supabase:
+                prof_res = supabase.table('profiles').select('is_suspended').eq('id', session['user']).execute()
+                if prof_res.data and prof_res.data[0].get('is_suspended', False):
+                    session.clear()
+                    flash('Your account has been suspended. Please contact support.', 'error')
+                    return redirect(url_for('login'))
+        except Exception as e:
+            print(f"Global suspension check failed: {e}")
+            
         now = datetime.datetime.now(datetime.timezone.utc)
         
         # 1. Check Inactivity Timeout
@@ -103,37 +123,31 @@ def manage_session_logic():
                 flash('Session expired due to inactivity. Please login again.', 'warning')
                 return redirect(url_for('login'))
 
-        # 2. Refresh Supabase Token if needed
+        # 2. Refresh Supabase Token if nearing expiry
         expires_at = session.get('access_expires_at')
         if expires_at:
-             # Check if nearing expiry
-             if isinstance(expires_at, int): # Timestamp
-                 exp_time = datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc)
-             else:
-                 exp_time = datetime.datetime.fromisoformat(expires_at)
-                 if exp_time.tzinfo is None:
-                     exp_time = exp_time.replace(tzinfo=datetime.timezone.utc)
-             
-             time_left = exp_time - now
-             if time_left < timedelta(seconds=REFRESH_THRESHOLD):
-                 print("DEBUG: Refreshing Supabase Token...")
-                 refresh_token = session.get('refresh_token')
-                 if refresh_token:
-                     try:
-                         # Use Supabase client to refresh
-                         res = supabase.auth.refresh_session(refresh_token)
-                         if res and res.session:
-                             session['access_token'] = res.session.access_token
-                             session['refresh_token'] = res.session.refresh_token
-                             session['access_expires_at'] = res.session.expires_at
-                             print("DEBUG: Token refreshed successfully.")
-                         else:
-                             raise Exception("Refresh failed")
-                     except Exception as e:
-                         print(f"DEBUG: Token refresh failed: {e}")
-                         session.clear()
-                         flash('Session expired. Please login again.', 'error')
-                         return redirect(url_for('login'))
+            if isinstance(expires_at, int):
+                exp_time = datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc)
+            else:
+                exp_time = datetime.datetime.fromisoformat(expires_at)
+                if exp_time.tzinfo is None:
+                    exp_time = exp_time.replace(tzinfo=datetime.timezone.utc)
+            if (exp_time - now) < timedelta(seconds=REFRESH_THRESHOLD):
+                refresh_token = session.get('refresh_token')
+                if refresh_token:
+                    try:
+                        res = supabase.auth.refresh_session(refresh_token)
+                        if res and res.session:
+                            session['access_token']      = res.session.access_token
+                            session['refresh_token']      = res.session.refresh_token
+                            session['access_expires_at']  = res.session.expires_at
+                        else:
+                            raise Exception("Supabase refresh returned no session")
+                    except Exception as e:
+                        current_app.logger.warning(f"Token refresh failed: {e}")
+                        session.clear()
+                        flash('Session expired. Please login again.', 'error')
+                        return redirect(url_for('login'))
 
         # 3. Update Last Activity
         session['last_activity'] = now.isoformat()
@@ -156,6 +170,7 @@ def get_db(token=None):
     if token:
         return create_client(SUPABASE_URL, SUPABASE_KEY, options=ClientOptions(headers={"Authorization": f"Bearer {token}"}))
     return supabase
+
 
 def get_user_profile(token):
     try:
@@ -249,39 +264,56 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    session.clear()
-    session.permanent = True
-
     if request.method == 'POST':
+        # Clear session only when actually attempting to login
+        session.clear()
+        session.permanent = True
+        
         if not check_db_config():
             return render_template('login.html')
 
         username = request.form.get('username')
         password = request.form.get('password')
 
+        # 1. Lookup email from username
         try:
-            # 1. Lookup email from username
-            user_res = supabase.table('profiles').select('email, id').eq('username', username).execute()
-            if not user_res.data:
-                flash('Invalid username or password', 'error')
-                return render_template('login.html')
-            
-            email = user_res.data[0]['email']
-            if not email:
-                 flash('Account configuration error.', 'error')
-                 return render_template('login.html')
+            user_res = supabase.table('profiles').select('email, id, is_admin, is_suspended').eq('username', username).execute()
+        except Exception as query_e:
+            flash(f"User Lookup Error: {str(query_e)}", 'error')
+            return render_template('login.html')
 
+        if not user_res.data:
+            flash('Invalid username or password', 'error')
+            return render_template('login.html')
+            
+        email = user_res.data[0]['email']
+        is_admin = user_res.data[0].get('is_admin', False)
+        is_suspended = user_res.data[0].get('is_suspended', False)
+        
+        if not email:
+            flash('Account configuration error.', 'error')
+            return render_template('login.html')
+
+        try:
             # 2. Sign in
             res = supabase.auth.sign_in_with_password({
                 "email": email,
                 "password": password
             })
             
+            if is_suspended:
+                supabase.auth.sign_out()
+                session.clear()
+                flash('Your account has been suspended. Please contact support.', 'error')
+                return redirect(url_for('login'))
+            
             # 3. Secure Session Setup
             session.clear() # Prevent session fixation
             session.permanent = True # Enable timeout
             
             session['user'] = res.user.id
+            session['user_email'] = email
+            session['is_admin'] = is_admin
             session['access_token'] = res.session.access_token
             session['refresh_token'] = res.session.refresh_token
             session['access_expires_at'] = res.session.expires_at # Auto-refresh trigger
@@ -291,10 +323,21 @@ def login():
             return redirect(url_for('dashboard'))
             
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             print(f"Login Error: {e}")
             flash('Login failed. Please check credentials.', 'error')
             
     return render_template('login.html')
+
+@app.route('/test_login_debug', methods=['GET'])
+def test_login_debug():
+    try:
+        user_res = supabase.table('profiles').select('email, id').eq('username', 'Blinks').execute()
+        return jsonify({"success": True, "data": user_res.data})
+    except Exception as e:
+        import traceback
+        return jsonify({"success": False, "error": str(e), "trace": traceback.format_exc()})
 
 @app.route('/logout')
 def logout():
@@ -307,10 +350,14 @@ def register():
     if request.method == 'POST':
         if not check_db_config(): return render_template('register.html')
 
-        email = request.form.get('email')
-        username = request.form.get('username')
-        password = request.form.get('password')
-        full_name = request.form.get('full_name')
+        email = request.form.get('email', '').strip()
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        full_name = request.form.get('full_name', '').strip()
+
+        if not email or not username or not password:
+            flash('Email, username, and password are required.', 'error')
+            return render_template('register.html')
 
         try:
             existing_user = supabase.table('profiles').select('id').eq('username', username).execute()
@@ -329,8 +376,20 @@ def register():
                 }
             })
             if res.user:
-                 flash('Registration successful! Please login.', 'success')
-                 return redirect(url_for('login'))
+                # Explicit profile upsert — guarantees username & email are saved
+                # even if the Supabase DB trigger is running an older version.
+                try:
+                    supabase.table('profiles').upsert({
+                        'id':        res.user.id,
+                        'email':     email,
+                        'username':  username,
+                        'full_name': full_name,
+                    }, on_conflict='id').execute()
+                except Exception as pe:
+                    print(f"[register] profile upsert warning: {pe}")
+
+                flash('Registration successful! Please check your email to verify your account, then login.', 'success')
+                return redirect(url_for('login'))
         except Exception as e:
             flash(f"Registration failed: {str(e)}", 'error')
     return render_template('register.html')
@@ -386,6 +445,7 @@ def verify():
             session.clear()
             session.permanent = True
             session['user'] = res.user.id
+            session['user_email'] = email
             session['access_token'] = res.session.access_token
             session['refresh_token'] = res.session.refresh_token
             session['access_expires_at'] = res.session.expires_at
@@ -439,6 +499,150 @@ def complete_profile():
         except Exception as e:
              flash(f"Error: {str(e)}", 'error')
     return render_template('complete_profile.html')
+
+# ---------------------------------------------------------
+# Password Reset & Username Recovery Routes
+# ---------------------------------------------------------
+
+@app.route('/forgot_credentials', methods=['GET', 'POST'])
+def forgot_credentials():
+    """
+    Handle forgot username and password requests.
+    Implements rate limiting and prevents email enumeration.
+    """
+    if request.method == 'POST':
+        if not check_db_config(): 
+            return render_template('forgot_credentials.html')
+        
+        email = request.form.get('email', '').strip().lower()
+        action = request.form.get('action')  # 'username' or 'password'
+        
+        # Rate limiting check
+        rate_limit_key = f'forgot_cred_{email}'
+        last_request = session.get(rate_limit_key)
+        
+        if last_request:
+            time_since_last = datetime.datetime.now(datetime.timezone.utc) - datetime.datetime.fromisoformat(last_request)
+            if time_since_last < timedelta(minutes=1):
+                # Too many requests - still show success to prevent enumeration
+                flash('If this email exists in our system, we have sent instructions.', 'info')
+                return redirect(url_for('login'))
+        
+        # Update rate limit timestamp
+        session[rate_limit_key] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        
+        try:
+            if action == 'username':
+                # Send username reminder
+                try:
+                    # Look up user by email
+                    user_res = supabase.table('profiles').select('username, email, id').eq('email', email).execute()
+                    
+                    if user_res.data and len(user_res.data) > 0:
+                        username = user_res.data[0].get('username')
+                        
+                        if username:
+                            # Send email with username
+                            msg = Message(
+                                subject='Your Expense Tracker Username',
+                                recipients=[email],
+                                body=f"""Hello,
+
+You requested a reminder of your username for the Expense Tracker application.
+
+Your username is: {username}
+
+If you did not request this, please ignore this email.
+
+Best regards,
+Expense Tracker Team
+"""
+                            )
+                            mail.send(msg)
+                except Exception as e:
+                    print(f"Error sending username reminder: {e}")
+                    # Don't reveal the error to user
+                
+            elif action == 'password':
+                # Trigger Supabase password reset
+                try:
+                    # Get the base URL for redirect
+                    base_url = request.url_root.rstrip('/')
+                    reset_url = f"{base_url}/reset_password"
+                    
+                    supabase.auth.reset_password_for_email(
+                        email,
+                        options={"redirect_to": reset_url}
+                    )
+                except Exception as e:
+                    print(f"Error sending password reset: {e}")
+                    # Don't reveal the error to user
+            
+            # Always show the same success message (prevent email enumeration)
+            flash('If this email exists in our system, we have sent instructions.', 'info')
+            
+        except Exception as e:
+            print(f"Forgot credentials error: {e}")
+            # Still show success message to prevent enumeration
+            flash('If this email exists in our system, we have sent instructions.', 'info')
+        
+        # Redirect to login page after processing
+        return redirect(url_for('login'))
+    
+    return render_template('forgot_credentials.html')
+
+
+@app.route('/reset_password', methods=['GET', 'POST'])
+def reset_password():
+    """
+    Handle password reset with Supabase recovery token.
+    Token comes from URL fragment and is submitted via form.
+    """
+    if request.method == 'POST':
+        if not check_db_config():
+            flash('System error. Please try again later.', 'error')
+            return redirect(url_for('login'))
+        
+        access_token = request.form.get('access_token', '').strip()
+        new_password = request.form.get('new_password', '').strip()
+        confirm_password = request.form.get('confirm_password', '').strip()
+        
+        # Validation
+        if not access_token:
+            flash('Invalid or expired reset link.', 'error')
+            return redirect(url_for('login'))
+        
+        if not new_password or not confirm_password:
+            flash('Please enter and confirm your new password.', 'error')
+            return render_template('reset_password.html')
+        
+        if new_password != confirm_password:
+            flash('Passwords do not match.', 'error')
+            return render_template('reset_password.html')
+        
+        if len(new_password) < 8:
+            flash('Password must be at least 8 characters long.', 'error')
+            return render_template('reset_password.html')
+        
+        try:
+            # Use the same logic as change_password route
+            # Create auth client and set session with the recovery token
+            auth_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+            auth_client.auth.set_session(access_token, access_token)  # Use token as both access and refresh
+            auth_client.auth.update_user({"password": new_password})
+            
+            flash('Password updated successfully! You can now login with your new password.', 'success')
+            return redirect(url_for('login'))
+            
+        except Exception as e:
+            print(f"Password reset error: {e}")
+            flash('Invalid or expired reset link. Please request a new one.', 'error')
+            return redirect(url_for('forgot_credentials'))
+    
+    # GET request - show the reset form
+    return render_template('reset_password.html')
+
+
 
 @app.route('/dashboard')
 def dashboard():
@@ -508,8 +712,15 @@ def banks():
     if 'user' not in session: return redirect(url_for('login'))
     try:
         token = session.get('access_token')
-        res = get_db(token).table('bank_accounts').select('*').eq('user_id', session['user']).execute()
-        banks = res.data
+        db_service = SupabaseService(get_supabase_client(token))
+
+        # 1. Personal (Savings) banks from Supabase
+        banks = db_service.get_personal_banks(session['user'])
+
+        # 2. Enterprise (Current/CC/OD) banks from Supabase enterprise_bank_accounts
+        enterprise_banks = db_service.get_enterprise_banks(session['user'])
+
+        # 3. Calculate running balance for personal banks
         tx_res = get_db(token).table('expenses').select('amount, type, bank_account_id').eq('user_id', session['user']).not_.is_('bank_account_id', 'null').execute()
         transactions = tx_res.data
         for bank in banks:
@@ -520,10 +731,37 @@ def banks():
                 if tx['type'] == 'income': current_bal += amount
                 elif tx['type'] == 'expense': current_bal -= amount
             bank['current_balance'] = current_bal
+
+        # 4. Calculate running balance for enterprise banks
+        ent_bank_ids = [b['id'] for b in enterprise_banks]
+        if ent_bank_ids:
+            ent_rev_res = get_db(token).table('ent_revenue').select('amount, bank_account_id').in_('bank_account_id', ent_bank_ids).execute()
+            ent_exp_res = get_db(token).table('ent_expenses').select('amount, bank_account_id').in_('bank_account_id', ent_bank_ids).execute()
+            
+            ent_revs = ent_rev_res.data or []
+            ent_exps = ent_exp_res.data or []
+            
+            for ent_bank in enterprise_banks:
+                current_bal = float(ent_bank.get('opening_balance', 0))
+                
+                # Add all income
+                for rev in ent_revs:
+                    if rev.get('bank_account_id') == ent_bank['id']:
+                        current_bal += float(rev['amount'])
+                        
+                # Subtract all expenses
+                for exp in ent_exps:
+                    if exp.get('bank_account_id') == ent_bank['id']:
+                        current_bal -= float(exp['amount'])
+                        
+                ent_bank['current_balance'] = current_bal
+        else:
+            for ent_bank in enterprise_banks:
+                ent_bank['current_balance'] = float(ent_bank.get('opening_balance', 0))
     except Exception as e:
         flash(f"Error: {str(e)}", 'error')
-        banks = []
-    return render_template('banks.html', banks=banks)
+        banks, enterprise_banks = [], []
+    return render_template('banks.html', banks=banks, enterprise_banks=enterprise_banks)
 
 @app.route('/profile', methods=['GET', 'POST'])
 def profile():
@@ -725,11 +963,13 @@ def add_expense():
                 if rec_res.data: recurring_id = rec_res.data[0]['id']
                 msg += " (Set to recur monthly)"
 
+            # Ensure this is un-indented back to the try block level!
             get_db(token).table('expenses').insert({
                 'user_id': session['user'], 'date': date, 'category': category, 'amount': float(amount),
                 'description': desc, 'type': tx_type, 'bank_account_id': bank_id or None,
                 'receipt_url': receipt_url, 'recurring_rule_id': recurring_id
             }).execute()
+            
             flash(msg, 'success')
             return redirect(url_for('expenses'))
         except Exception as e:
@@ -823,30 +1063,121 @@ def reports():
     if 'user' not in session: return redirect(url_for('login'))
     try:
         token = session.get('access_token')
-        transactions = get_db(token).table('expenses').select('*').eq('user_id', session['user']).execute().data
-        monthly_data = {}
-        for tx in transactions:
-            m = tx['date'][:7]
+        user_id = session['user']
+
+        # ── Read filter params (state persistence) ──
+        period         = request.args.get('period', 'this_month')
+        cat_filter     = request.args.get('category', 'all')
+        payment_filter = request.args.get('payment_method', 'all')
+        type_filter    = request.args.get('tx_type', 'all')
+        custom_start   = request.args.get('start_date', '')
+        custom_end     = request.args.get('end_date', '')
+
+        # ── Resolve date range ──
+        today = datetime.date.today()
+        if period == 'this_month':
+            start_date = today.replace(day=1).strftime('%Y-%m-%d')
+            end_date   = today.strftime('%Y-%m-%d')
+        elif period == 'last_3_months':
+            m = today.month - 3
+            y = today.year + (m - 1) // 12
+            m = ((m - 1) % 12) + 1
+            start_date = today.replace(year=y, month=m, day=1).strftime('%Y-%m-%d')
+            end_date   = today.strftime('%Y-%m-%d')
+        elif period == 'ytd':
+            start_date = today.replace(month=1, day=1).strftime('%Y-%m-%d')
+            end_date   = today.strftime('%Y-%m-%d')
+        elif period == 'custom' and custom_start:
+            start_date = custom_start
+            end_date   = custom_end or today.strftime('%Y-%m-%d')
+        else:
+            start_date = today.replace(day=1).strftime('%Y-%m-%d')
+            end_date   = today.strftime('%Y-%m-%d')
+
+        # ── Fetch all transactions (for charts — always from Supabase: personal data) ──
+        # Personal transactions ALWAYS live in Supabase regardless of DB_BACKEND
+        sb_svc = SupabaseService(get_db(token))
+        all_txns = sb_svc.get_personal_transactions(user_id, {
+            'start_date': None, 'end_date': None,
+        })
+
+        # ── Build chart data from personal transactions only ──
+        monthly_data, exp_categories, inc_categories = {}, {}, {}
+        for tx in all_txns:
+            m   = str(tx['date'])[:7]
+            cat = tx.get('category', 'Uncategorized')
+            amt = float(tx.get('amount', 0))
             if m not in monthly_data: monthly_data[m] = {'income': 0, 'expense': 0}
-            if tx['type'] == 'income': monthly_data[m]['income'] += tx['amount']
-            else: monthly_data[m]['expense'] += tx['amount']
-            
-        bar_labels = sorted(monthly_data.keys())
-        bar_exp = [monthly_data[m]['expense'] for m in bar_labels]
-        bar_inc = [monthly_data[m]['income'] for m in bar_labels]
-        
-        prof = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
+            if tx['type'] == 'income':
+                monthly_data[m]['income'] += amt
+                inc_categories[cat] = inc_categories.get(cat, 0) + amt
+            else:
+                monthly_data[m]['expense'] += amt
+                exp_categories[cat] = exp_categories.get(cat, 0) + amt
+
+        bar_labels      = sorted(monthly_data.keys())
+        bar_exp         = [monthly_data[m]['expense'] for m in bar_labels]
+        bar_inc         = [monthly_data[m]['income']  for m in bar_labels]
+        exp_pie_labels  = list(exp_categories.keys())
+        exp_pie_values  = list(exp_categories.values())
+        inc_pie_labels  = list(inc_categories.keys())
+        inc_pie_values  = list(inc_categories.values())
+
+        # ── Fetch filtered transactions for the table ──
+        filters = {
+            'start_date':     start_date,
+            'end_date':       end_date,
+            'category':       cat_filter,
+            'payment_method': payment_filter,
+            'tx_type':        type_filter,
+        }
+        transactions = sb_svc.get_personal_transactions(user_id, filters)
+
+        # ── Mini-card totals ──
+        total_income  = sum(t['amount'] for t in transactions if t['type'] == 'income')
+        total_expense = sum(t['amount'] for t in transactions if t['type'] != 'income')
+        net_savings   = total_income - total_expense
+
+        # ── Category list for dropdown ──
+        all_categories = sb_svc.get_categories(user_id)
+
+        # ── Currency ──
+        prof = get_db(token).table('profiles').select('currency').eq('id', user_id).execute()
         currency = prof.data[0]['currency'] if prof.data else '₹'
-        
-        # Pie chart logic omitted for brevity (passed as empty/reused)
-        exp_pie_labels, exp_pie_values, inc_pie_labels, inc_pie_values = [], [], [], []
+
+        # ── Collect personal banks for filter dropdown ──
+        banks_res = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', user_id).execute()
+        personal_banks = banks_res.data or []
+
     except Exception as e:
-        bar_labels, bar_exp, bar_inc, currency = [], [], [], '₹'
+        import traceback; traceback.print_exc()
+        bar_labels = bar_exp = bar_inc = []
         exp_pie_labels = exp_pie_values = inc_pie_labels = inc_pie_values = []
-    
-    return render_template('reports.html', exp_pie_labels=exp_pie_labels, exp_pie_values=exp_pie_values,
-                           inc_pie_labels=inc_pie_labels, inc_pie_values=inc_pie_values,
-                           bar_labels=bar_labels, bar_exp=bar_exp, bar_inc=bar_inc, currency=currency)
+        transactions = []
+        total_income = total_expense = net_savings = 0
+        all_categories = []
+        currency = '₹'
+        personal_banks = []
+        period = 'this_month'
+        start_date = end_date = ''
+        cat_filter = payment_filter = type_filter = 'all'
+        custom_start = custom_end = ''
+
+    return render_template('reports.html',
+        exp_pie_labels=exp_pie_labels, exp_pie_values=exp_pie_values,
+        inc_pie_labels=inc_pie_labels, inc_pie_values=inc_pie_values,
+        bar_labels=bar_labels, bar_exp=bar_exp, bar_inc=bar_inc,
+        currency=currency,
+        transactions=transactions,
+        total_income=total_income, total_expense=total_expense, net_savings=net_savings,
+        all_categories=all_categories,
+        personal_banks=personal_banks,
+        # filter state for persistence
+        f_period=period, f_category=cat_filter, f_payment=payment_filter,
+        f_tx_type=type_filter, f_start=start_date, f_end=end_date,
+        f_custom_start=custom_start, f_custom_end=custom_end,
+    )
+
 
 @app.route('/export_pdf')
 def export_pdf_route():
@@ -946,22 +1277,94 @@ def settle_debt(debt_id):
     if 'user' not in session: return redirect(url_for('login'))
     token = session.get('access_token')
     try:
-        res = get_db(token).table('debts').select('*').eq('id', debt_id).execute()
-        if not res.data: return redirect(url_for('debts'))
+        res = get_db(token).table('debts').select('*').eq('id', debt_id).eq('user_id', session['user']).execute()
+        if not res.data:
+            flash("Debt not found.", "error")
+            return redirect(url_for('debts'))
         debt = res.data[0]
+        amt, dtype, name = debt['amount'], debt['type'], debt['person_name']
+        bid = request.form.get('bank_account_id')
         get_db(token).table('debts').update({'status': 'settled'}).eq('id', debt_id).execute()
-        
-        tx_type = 'income' if debt['type'] == 'lend' else 'expense'
-        desc = f"Repayment from {debt['person_name']}" if debt['type'] == 'lend' else f"Repayment to {debt['person_name']}"
+        tx_type = 'income' if dtype == 'lend' else 'expense'
+        desc = f"Settled: {'Received from' if dtype == 'lend' else 'Paid back to'} {name}"
         get_db(token).table('expenses').insert({
-            'user_id': session['user'], 'date': datetime.date.today().isoformat(), 'category': 'Debt Repayment',
-            'amount': debt['amount'], 'description': desc, 'type': tx_type, 
-            'bank_account_id': request.form.get('bank_account_id') or None
+            'user_id': session['user'], 'date': str(datetime.date.today()),
+            'category': 'Debt Settlement', 'amount': amt,
+            'description': desc, 'type': tx_type,
+            'bank_account_id': bid if bid else None
         }).execute()
-        flash('Debt settled!', 'success')
+        flash("Debt settled successfully.", "success")
+    except Exception as e:
+        flash(f"Error settling debt: {e}", "error")
+    return redirect(url_for('debts'))
+
+
+# ---------------------------------------------------------
+# Enterprise Bank Account Routes
+# ---------------------------------------------------------
+
+@app.route('/add_enterprise_bank', methods=['POST'])
+def add_enterprise_bank():
+    if 'user' not in session: return redirect(url_for('login'))
+    try:
+        account_type = request.form.get('account_type', 'Current')
+        if account_type not in ('Current', 'CC/OD'):
+            flash('Invalid account type.', 'error')
+            return redirect(url_for('banks'))
+        data = {
+            'business_name': request.form.get('business_name'),
+            'bank_name': request.form.get('bank_name'),
+            'account_number': request.form.get('account_number'),
+            'ifsc_code': request.form.get('ifsc_code'),
+            'opening_balance': float(request.form.get('opening_balance', 0) or 0),
+            'account_type': account_type
+        }
+        db_service = SupabaseService(get_supabase_client(session.get('access_token')))
+        if db_service.add_enterprise_bank(session['user'], data):
+            flash('Business account added!', 'success')
+        else:
+            flash('Failed to add business account. Please try again.', 'error')
     except Exception as e:
         flash(f"Error: {str(e)}", 'error')
-    return redirect(url_for('debts'))
+    return redirect(url_for('banks'))
+
+@app.route('/delete_enterprise_bank/<bank_id>')
+def delete_enterprise_bank(bank_id):
+    if 'user' not in session: return redirect(url_for('login'))
+    try:
+        db_service = SupabaseService(get_supabase_client(session.get('access_token')))
+        if db_service.delete_enterprise_bank(session['user'], bank_id):
+            flash('Business account removed.', 'info')
+        else:
+            flash('Failed to remove account.', 'error')
+    except Exception as e:
+        flash(f"Error: {str(e)}", 'error')
+    return redirect(url_for('banks'))
+
+
+# ---------------------------------------------------------
+# Error Handlers
+# ---------------------------------------------------------
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Pass through HTTP exceptions (404, 405, etc.) — let Flask handle them normally
+    if isinstance(e, HTTPException):
+        return e
+
+    # Check for specific Supabase JWT Expiry Error (PGRST303)
+    error_str = str(e)
+    if "JWT expired" in error_str or "PGRST303" in error_str:
+        print("CRITICAL: Caught Dead JWT. Forcing Logout.")
+        session.clear()
+        flash("Security token expired. Please login again.", "warning")
+        return redirect(url_for('login'))
+
+    # For all other real code errors, log them
+    print(f"Unhandled Server Error: {e}")
+    import traceback; traceback.print_exc()
+    if app.debug:
+        raise e
+    return render_template('500.html'), 500
 
 if __name__ == '__main__':
     app.run(debug=True)

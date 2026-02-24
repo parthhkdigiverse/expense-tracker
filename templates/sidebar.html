@@ -61,6 +61,7 @@
                 <span>Reports</span>
             </a>
         </li>
+
         <li>
             <a href="{{ url_for('profile') }}" class="{{ 'active' if request.endpoint == 'profile' else '' }}">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
@@ -71,6 +72,21 @@
                 <span>Profile</span>
             </a>
         </li>
+
+        {% if session.get('is_admin') %}
+        <li>
+            <a href="{{ url_for('admin.dashboard') }}" class="{{ 'active' if 'admin' in request.path else '' }}"
+                style="background: rgba(255, 215, 0, 0.1); border-left: 3px solid #FFD700;">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                    stroke="#FFD700" style="width: 24px; height: 24px;">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                </svg>
+                <span style="color: #FFD700; font-weight: bold;">Admin Panel</span>
+            </a>
+        </li>
+        {% endif %}
+
         <li><a href="{{ url_for('logout') }}" class="btn-danger-link"
                 onclick="return confirm('Are you sure you want to logout?');">🚪 Logout</a></li>
     </ul>

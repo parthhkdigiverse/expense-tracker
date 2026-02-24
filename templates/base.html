@@ -11,9 +11,11 @@
 
 <body>
   <div class="app-wrapper">
+    {% block sidebar %}
     {% if 'user' in session %}
     {% include 'sidebar.html' %}
     {% endif %}
+    {% endblock %}
 
     <div class="main-content">
       <!-- Mobile Navigation Bar -->

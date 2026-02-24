@@ -1,0 +1,56 @@
+{% extends "admin/layout.html" %}
+
+{% block content %}
+<div class="dashboard-header" style="margin-bottom: 20px;">
+    <div class="header-content">
+        <h1>{{ org_name }} - Members</h1>
+        <p style="color: var(--text-secondary); margin-top: 5px; font-size: 0.9em;">
+            <a href="{{ url_for('admin.businesses') }}" style="color: var(--brand-start); text-decoration: none;">← Back
+                to Businesses</a>
+        </p>
+    </div>
+</div>
+
+<div class="admin-table-container">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Member Email</th>
+                <th>Full Name</th>
+                <th>Business Role</th>
+                <th>System Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in members %}
+            <tr>
+                <td style="font-weight: 500;">{{ m.profiles.email }}</td>
+                <td>{{ m.profiles.full_name or "N/A" }}</td>
+                <td>
+                    {% if m.role == 'owner' %}
+                    <span class="badge-admin" style="background: rgba(217, 119, 6, 0.2); color: #d97706;">Owner</span>
+                    {% elif m.role == 'admin' %}
+                    <span class="badge-admin">Admin</span>
+                    {% else %}
+                    <span class="badge-user">Staff</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if m.profiles.is_suspended %}
+                    <span class="badge-admin" style="background: rgba(220, 38, 38, 0.2); color: #dc2626;">System
+                        Suspended</span>
+                    {% else %}
+                    <span class="badge-admin" style="background: rgba(5, 150, 105, 0.2); color: #059669;">Active</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="4" style="text-align: center; padding: 40px; color: var(--text-secondary);">No members
+                    found for this organization.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,362 @@
+-- ==============================================================================
+-- 🚀 COMPLETE DATABASE SETUP SCRIPT FOR "EXPS TRACKER" (VERSION 2)
+-- Personal + Enterprise Expenses | Fully Native Supabase Data Structure
+-- ==============================================================================
+-- INSTRUCTIONS: Open the Supabase SQL Editor, paste this entire file, and click RUN.
+-- It will safely create all tables, permissions (RLS), User Profiles logic, 
+-- Storage Buckets, and Double Login security hooks.
+-- ==============================================================================
+
+-- Enable secure hashing for enterprise PINs
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- Protect against 42501 Permission Denied errors out of the box
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+
+
+-- ==============================================================================
+-- PART 1: PERSONAL / CORE TABLES
+-- ==============================================================================
+
+-- 1. profiles: Automatically created when a user signs up.
+CREATE TABLE IF NOT EXISTS public.profiles (
+    id           uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    email        text UNIQUE NOT NULL,
+    username     text UNIQUE,
+    full_name    text,
+    avatar_url   text,
+    budget       numeric(15,2) DEFAULT 0.00,
+    currency     text DEFAULT '₹',
+    created_at   timestamptz DEFAULT now() NOT NULL
+);
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.profiles TO anon, authenticated, service_role;
+
+-- RLS: Allow anyone to view profiles (necessary for checking available usernames and adding staff)
+CREATE POLICY "profiles_select" ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "profiles_insert" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "profiles_update" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "profiles_delete" ON public.profiles FOR DELETE USING (auth.uid() = id);
+
+
+-- 1a. Storage Buckets for Avatars and Receipts
+INSERT INTO storage.buckets (id, name, public) VALUES ('avatars', 'avatars', true) ON CONFLICT (id) DO NOTHING;
+INSERT INTO storage.buckets (id, name, public) VALUES ('receipts', 'receipts', true) ON CONFLICT (id) DO NOTHING;
+
+CREATE POLICY "Avatar images are publicly accessible" ON storage.objects FOR SELECT USING (bucket_id = 'avatars');
+CREATE POLICY "Anyone can upload an avatar" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'avatars');
+
+
+-- 2. bank_accounts (Personal)
+CREATE TABLE IF NOT EXISTS public.bank_accounts (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    bank_name       text NOT NULL,
+    account_number  text,
+    ifsc_code       text,
+    opening_balance numeric(15,2) DEFAULT 0.00,
+    created_at      timestamptz DEFAULT now() NOT NULL
+);
+ALTER TABLE public.bank_accounts ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.bank_accounts TO anon, authenticated, service_role;
+CREATE POLICY "bank_accounts_all" ON public.bank_accounts FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+
+-- 3. user_categories (Custom personal categories)
+CREATE TABLE IF NOT EXISTS public.user_categories (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id    uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    name       text NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL
+);
+ALTER TABLE public.user_categories ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.user_categories TO anon, authenticated, service_role;
+CREATE POLICY "user_categories_all" ON public.user_categories FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+
+-- 4. expenses (Personal Transactions: Income & Expense)
+CREATE TABLE IF NOT EXISTS public.expenses (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    amount          numeric(15,2) NOT NULL DEFAULT 0,
+    type            text DEFAULT 'expense' CHECK (type IN ('income', 'expense')),
+    category        text NOT NULL,
+    date            date NOT NULL DEFAULT CURRENT_DATE,
+    description     text,
+    method          text,
+    bank_account_id uuid REFERENCES public.bank_accounts(id) ON DELETE SET NULL,
+    receipt_url     text,
+    recurring_rule_id uuid REFERENCES public.recurring_expenses(id) ON DELETE SET NULL,
+    created_at      timestamptz DEFAULT now() NOT NULL
+);
+ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.expenses TO anon, authenticated, service_role;
+CREATE POLICY "expenses_all" ON public.expenses FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+
+-- 5. recurring_expenses (Personal)
+CREATE TABLE IF NOT EXISTS public.recurring_expenses (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    amount          numeric(15,2) NOT NULL DEFAULT 0,
+    type            text DEFAULT 'expense' CHECK (type IN ('income', 'expense')),
+    category        text NOT NULL,
+    frequency       text NOT NULL CHECK (frequency IN ('daily', 'weekly', 'monthly', 'yearly')),
+    next_due_date   date NOT NULL,
+    description     text,
+    method          text,
+    status          text DEFAULT 'active' CHECK (status IN ('active', 'paused', 'cancelled')),
+    bank_account_id uuid REFERENCES public.bank_accounts(id) ON DELETE SET NULL,
+    created_at      timestamptz DEFAULT now() NOT NULL
+);
+ALTER TABLE public.recurring_expenses ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.recurring_expenses TO anon, authenticated, service_role;
+CREATE POLICY "recurring_all" ON public.recurring_expenses FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+
+-- 6. debts (Personal Tracking)
+CREATE TABLE IF NOT EXISTS public.debts (
+    id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id          uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    person_name      text NOT NULL,
+    type             text DEFAULT 'lend' CHECK (type IN ('lend', 'borrow')),
+    amount           numeric(15,2) NOT NULL DEFAULT 0,
+    paid_amount      numeric(15,2) DEFAULT 0,
+    remaining_amount numeric(15,2),
+    due_date         date,
+    transaction_date date,
+    description      text,
+    status           text DEFAULT 'active' CHECK (status IN ('active', 'settled')),
+    bank_account_id  uuid REFERENCES public.bank_accounts(id) ON DELETE SET NULL,
+    created_at       timestamptz DEFAULT now() NOT NULL
+);
+ALTER TABLE public.debts ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.debts TO anon, authenticated, service_role;
+CREATE POLICY "debts_all" ON public.debts FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+
+
+-- ==============================================================================
+-- PART 2: ENTERPRISE (BUSINESS) TABLES
+-- ==============================================================================
+
+-- 7. ent_organizations (The central hub for a business)
+CREATE TABLE IF NOT EXISTS public.ent_organizations (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name       text UNIQUE NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL
+);
+ALTER TABLE public.ent_organizations ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.ent_organizations TO anon, authenticated, service_role;
+-- Organizations are fully readable/insertable to allow dynamic collaborative setups.
+CREATE POLICY "ent_orgs_select" ON public.ent_organizations FOR SELECT USING (true);
+CREATE POLICY "ent_orgs_insert" ON public.ent_organizations FOR INSERT WITH CHECK (true);
+
+
+-- 8. ent_members (The strict gateway + Double Login PIN System)
+CREATE TABLE IF NOT EXISTS public.ent_members (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id uuid NOT NULL REFERENCES public.ent_organizations(id) ON DELETE CASCADE,
+    user_id         uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    role            text DEFAULT 'member',
+    pin_hash        text,
+    created_at      timestamptz DEFAULT now() NOT NULL,
+    UNIQUE (organization_id, user_id)
+);
+ALTER TABLE public.ent_members ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.ent_members TO anon, authenticated, service_role;
+-- A user can view their own membership or others in the same org, and insert themselves/others safely
+CREATE POLICY "ent_members_select" ON public.ent_members FOR SELECT USING (
+    user_id = auth.uid()
+);
+CREATE POLICY "ent_members_insert" ON public.ent_members FOR INSERT WITH CHECK (true);
+CREATE POLICY "ent_members_update" ON public.ent_members FOR UPDATE USING (user_id = auth.uid() OR role = 'owner');
+CREATE POLICY "ent_members_delete" ON public.ent_members FOR DELETE USING (user_id = auth.uid() OR role = 'owner');
+
+
+-- 8a. Double Login RPC: Set Business PIN
+CREATE OR REPLACE FUNCTION public.setup_business_pin(p_user_id uuid, p_business_name text, p_pin text) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_org_id uuid;
+BEGIN
+    SELECT id INTO v_org_id FROM public.ent_organizations WHERE name = p_business_name LIMIT 1;
+    IF v_org_id IS NULL THEN
+        INSERT INTO public.ent_organizations (name) VALUES (p_business_name) RETURNING id INTO v_org_id;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM public.ent_members WHERE user_id = p_user_id AND organization_id = v_org_id) THEN
+        UPDATE public.ent_members SET pin_hash = crypt(p_pin, gen_salt('bf')) WHERE user_id = p_user_id AND organization_id = v_org_id;
+        RETURN true;
+    ELSE
+        INSERT INTO public.ent_members (organization_id, user_id, role, pin_hash) VALUES (v_org_id, p_user_id, 'owner', crypt(p_pin, gen_salt('bf')));
+        RETURN true;
+    END IF;
+EXCEPTION WHEN OTHERS THEN RETURN false;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.setup_business_pin TO anon, authenticated, service_role;
+
+
+-- 8b. Double Login RPC: Verify Business PIN
+CREATE OR REPLACE FUNCTION public.verify_business_pin(p_user_id uuid, p_business_name text, p_pin text) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_stored_hash text;
+BEGIN
+    SELECT m.pin_hash INTO v_stored_hash 
+    FROM public.ent_members m
+    JOIN public.ent_organizations o ON m.organization_id = o.id
+    WHERE m.user_id = p_user_id AND o.name = p_business_name;
+    
+    IF v_stored_hash IS NULL THEN RETURN false; END IF;
+    RETURN v_stored_hash = crypt(p_pin, v_stored_hash);
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.verify_business_pin TO anon, authenticated, service_role;
+
+
+-- 9. enterprise_bank_accounts
+CREATE TABLE IF NOT EXISTS public.enterprise_bank_accounts (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    business_name   text NOT NULL,
+    bank_name       text NOT NULL,
+    account_number  text,
+    ifsc_code       text,
+    opening_balance numeric(15,2) DEFAULT 0.00,
+    account_type    text DEFAULT 'Current' CHECK (account_type IN ('Current', 'CC/OD')),
+    created_at      timestamptz DEFAULT now() NOT NULL
+);
+ALTER TABLE public.enterprise_bank_accounts ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.enterprise_bank_accounts TO anon, authenticated, service_role;
+CREATE POLICY "ent_banks_all" ON public.enterprise_bank_accounts FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+
+-- 10. ent_revenue
+CREATE TABLE IF NOT EXISTS public.ent_revenue (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id uuid NOT NULL REFERENCES public.ent_organizations(id) ON DELETE CASCADE,
+    amount          numeric(15,2) NOT NULL DEFAULT 0,
+    date            date NOT NULL DEFAULT CURRENT_DATE,
+    status          text DEFAULT 'completed',
+    taken_by        text,  
+    method          text,
+    bank_account_id uuid REFERENCES public.enterprise_bank_accounts(id) ON DELETE SET NULL,
+    narrative       text,
+    created_at      timestamptz DEFAULT now() NOT NULL
+);
+ALTER TABLE public.ent_revenue ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.ent_revenue TO anon, authenticated, service_role;
+CREATE POLICY "ent_revenue: org access" ON public.ent_revenue FOR ALL
+    USING  (EXISTS (SELECT 1 FROM public.ent_members m WHERE m.organization_id = ent_revenue.organization_id AND m.user_id = auth.uid()))
+    WITH CHECK (EXISTS (SELECT 1 FROM public.ent_members m WHERE m.organization_id = ent_revenue.organization_id AND m.user_id = auth.uid()));
+
+
+-- 11. ent_expenses
+CREATE TABLE IF NOT EXISTS public.ent_expenses (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id uuid NOT NULL REFERENCES public.ent_organizations(id) ON DELETE CASCADE,
+    amount          numeric(15,2) NOT NULL DEFAULT 0,
+    date            date NOT NULL DEFAULT CURRENT_DATE,
+    category        text NOT NULL,
+    taken_by        text,
+    method          text,
+    bank_account_id uuid REFERENCES public.enterprise_bank_accounts(id) ON DELETE SET NULL,
+    narrative       text,
+    created_at      timestamptz DEFAULT now() NOT NULL
+);
+ALTER TABLE public.ent_expenses ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.ent_expenses TO anon, authenticated, service_role;
+CREATE POLICY "ent_expenses: org access" ON public.ent_expenses FOR ALL
+    USING  (EXISTS (SELECT 1 FROM public.ent_members m WHERE m.organization_id = ent_expenses.organization_id AND m.user_id = auth.uid()))
+    WITH CHECK (EXISTS (SELECT 1 FROM public.ent_members m WHERE m.organization_id = ent_expenses.organization_id AND m.user_id = auth.uid()));
+
+
+-- 12. ent_investments
+CREATE TABLE IF NOT EXISTS public.ent_investments (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id uuid NOT NULL REFERENCES public.ent_organizations(id) ON DELETE CASCADE,
+    amount          numeric(15,2) NOT NULL DEFAULT 0,
+    date            date NOT NULL DEFAULT CURRENT_DATE,
+    type            text DEFAULT 'investment',
+    taken_by        text,
+    narrative       text,
+    source          text,    
+    description     text,    
+    created_at      timestamptz DEFAULT now() NOT NULL
+);
+ALTER TABLE public.ent_investments ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.ent_investments TO anon, authenticated, service_role;
+CREATE POLICY "ent_investments: org access" ON public.ent_investments FOR ALL
+    USING  (EXISTS (SELECT 1 FROM public.ent_members m WHERE m.organization_id = ent_investments.organization_id AND m.user_id = auth.uid()))
+    WITH CHECK (EXISTS (SELECT 1 FROM public.ent_members m WHERE m.organization_id = ent_investments.organization_id AND m.user_id = auth.uid()));
+
+
+-- 13. ent_holding_payments
+CREATE TABLE IF NOT EXISTS public.ent_holding_payments (
+    id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id  uuid NOT NULL REFERENCES public.ent_organizations(id) ON DELETE CASCADE,
+    created_by       uuid NOT NULL REFERENCES auth.users(id),
+    name             text NOT NULL,
+    type             text DEFAULT 'receivable' CHECK (type IN ('receivable', 'payable')),
+    amount           numeric(15,2) NOT NULL DEFAULT 0,
+    paid_amount      numeric(15,2) DEFAULT 0,
+    remaining_amount numeric(15,2),
+    expected_date    date,
+    mobile_no        text,
+    narrative        text,
+    status           text DEFAULT 'pending' CHECK (status IN ('pending', 'partial', 'settled')),
+    created_at       timestamptz DEFAULT now() NOT NULL
+);
+ALTER TABLE public.ent_holding_payments ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.ent_holding_payments TO anon, authenticated, service_role;
+CREATE POLICY "ent_holding: org access" ON public.ent_holding_payments FOR ALL
+    USING  (EXISTS (SELECT 1 FROM public.ent_members m WHERE m.organization_id = ent_holding_payments.organization_id AND m.user_id = auth.uid()))
+    WITH CHECK (EXISTS (SELECT 1 FROM public.ent_members m WHERE m.organization_id = ent_holding_payments.organization_id AND m.user_id = auth.uid()));
+
+
+-- 14. ent_staff
+CREATE TABLE IF NOT EXISTS public.ent_staff (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id uuid NOT NULL REFERENCES public.ent_organizations(id) ON DELETE CASCADE,
+    name            text NOT NULL,
+    designation     text,
+    created_at      timestamptz DEFAULT now() NOT NULL
+);
+ALTER TABLE public.ent_staff ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.ent_staff TO anon, authenticated, service_role;
+CREATE POLICY "ent_staff: org access" ON public.ent_staff FOR ALL
+    USING  (EXISTS (SELECT 1 FROM public.ent_members m WHERE m.organization_id = ent_staff.organization_id AND m.user_id = auth.uid()))
+    WITH CHECK (EXISTS (SELECT 1 FROM public.ent_members m WHERE m.organization_id = ent_staff.organization_id AND m.user_id = auth.uid()));
+
+
+-- ==============================================================================
+-- PART 3: TRIGGERS (Auto-Create Profiles)
+-- ==============================================================================
+-- Ensures that whenever a user signs up with Supabase Auth, their `profiles` row is created.
+
+CREATE OR REPLACE FUNCTION public.handle_new_user() 
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, username, full_name, avatar_url)
+  VALUES (
+    new.id, 
+    new.email, 
+    new.raw_user_meta_data->>'username', 
+    new.raw_user_meta_data->>'full_name',
+    new.raw_user_meta_data->>'avatar_url'
+  );
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+
+-- FORCE RELOAD POSTGREST CACHE
+NOTIFY pgrst, 'reload schema';
+
+-- DONE! Your entire Supabase Database is now fully configured. 🚀
