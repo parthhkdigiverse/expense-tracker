@@ -106,6 +106,9 @@ def enterprise_signup():
     if not business_name or not pin:
         flash('Business name and PIN are required.', 'error')
         return redirect(url_for('banks'))
+    if not (pin.isdigit() and 4 <= len(pin) <= 6):
+        flash('PIN must be 4-6 digits.', 'error')
+        return redirect(url_for('banks'))
     if pin != confirm:
         flash('PINs do not match.', 'error')
         return redirect(url_for('banks'))
@@ -182,6 +185,10 @@ def enterprise_reset_pin():
 
     if new_pin != confirm_pin:
         flash('New PINs do not match.', 'error')
+        return redirect(url_for('banks'))
+
+    if not (new_pin.isdigit() and 4 <= len(new_pin) <= 6):
+        flash('PIN must be 4-6 digits.', 'error')
         return redirect(url_for('banks'))
 
     svc = _svc()
@@ -703,8 +710,8 @@ def ent_update_pin():
         flash("New PINs do not match.", "error")
         return redirect(url_for('enterprise.ent_profile'))
         
-    if not (new_pin and new_pin.isdigit() and len(new_pin) == 4):
-        flash("PIN must be exactly 4 digits.", "error")
+    if not (new_pin and new_pin.isdigit() and 4 <= len(new_pin) <= 6):
+        flash("PIN must be 4-6 digits.", "error")
         return redirect(url_for('enterprise.ent_profile'))
         
     svc = _svc()
