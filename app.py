@@ -716,10 +716,8 @@ def banks():
 
     # 1. Personal (Savings) banks
     try:
-        print(f"[DEBUG banks] user_id={session['user']}, token={'present' if token else 'MISSING'}")
-        db_service = SupabaseService(get_supabase_client(token))
+        db_service = SupabaseService(get_db(token))
         banks = db_service.get_personal_banks(session['user'])
-        print(f"[DEBUG banks] personal banks returned: {len(banks)} items")
 
         # Calculate running balance for personal banks
         tx_res = get_db(token).table('expenses').select('amount, type, bank_account_id').eq('user_id', session['user']).not_.is_('bank_account_id', 'null').execute()
@@ -738,7 +736,7 @@ def banks():
 
     # 2. Enterprise (Current/CC/OD) banks
     try:
-        db_service = SupabaseService(get_supabase_client(token))
+        db_service = SupabaseService(get_db(token))
         enterprise_banks = db_service.get_enterprise_banks(session['user'])
 
         ent_bank_ids = [b['id'] for b in enterprise_banks]
