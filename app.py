@@ -209,18 +209,32 @@ def check_recurring_expenses(user_id, token):
         print(f"Error checking recurring expenses: {e}")
         return 0
 
-DEFAULT_CATEGORIES = [
-    'Food', 'Transport', 'Utilities', 'Entertainment', 'Shopping', 
-    'Health', 'Travel', 'Education', 'Salary', 'Freelance', 'Investment', 'Other'
+DEFAULT_EXPENSE_CATEGORIES = [
+    'Food', 'Transport', 'Utilities', 'Entertainment', 'Shopping',
+    'Health', 'Travel', 'Education', 'Other'
 ]
+DEFAULT_INCOME_CATEGORIES = [
+    'Salary', 'Freelance', 'Investment', 'Business', 'Rental', 'Other'
+]
+DEFAULT_CATEGORIES = DEFAULT_EXPENSE_CATEGORIES + DEFAULT_INCOME_CATEGORIES
 
-def get_all_categories(token, user_id):
+def get_all_categories(token, user_id, cat_type=None):
+    """Return default + custom categories. cat_type can be 'expense', 'income', or None (all)."""
     try:
-        res = get_db(token).table('user_categories').select('name').eq('user_id', user_id).execute()
+        query = get_db(token).table('user_categories').select('name, type').eq('user_id', user_id)
+        if cat_type:
+            query = query.eq('type', cat_type)
+        res = query.execute()
         custom_cats = [r['name'] for r in res.data]
-        return DEFAULT_CATEGORIES + custom_cats
     except Exception:
-        return DEFAULT_CATEGORIES
+        custom_cats = []
+
+    if cat_type == 'expense':
+        return DEFAULT_EXPENSE_CATEGORIES + custom_cats
+    elif cat_type == 'income':
+        return DEFAULT_INCOME_CATEGORIES + custom_cats
+    else:
+        return DEFAULT_CATEGORIES + custom_cats
 
 def get_filtered_expenses(token, user_id, args):
     start_date = args.get('start_date')
@@ -906,16 +920,21 @@ def categories():
         custom_categories = res.data
     except Exception:
         custom_categories = []
-    return render_template('categories.html', custom_categories=custom_categories, default_categories=DEFAULT_CATEGORIES)
+    return render_template('categories.html', custom_categories=custom_categories,
+                           default_expense_categories=DEFAULT_EXPENSE_CATEGORIES,
+                           default_income_categories=DEFAULT_INCOME_CATEGORIES)
 
 @app.route('/add_category', methods=['POST'])
 def add_category():
     if 'user' not in session: return redirect(url_for('login'))
     name = request.form.get('name')
+    cat_type = request.form.get('type', 'expense')
     if not name: return redirect(url_for('categories'))
+    if cat_type not in ('expense', 'income'):
+        cat_type = 'expense'
     try:
         token = session.get('access_token')
-        get_db(token).table('user_categories').insert({'user_id': session['user'], 'name': name}).execute()
+        get_db(token).table('user_categories').insert({'user_id': session['user'], 'name': name, 'type': cat_type}).execute()
         flash('Category added!', 'success')
     except Exception as e:
         flash(f"Error: {str(e)}", 'error')
@@ -979,15 +998,18 @@ def add_expense():
         except Exception as e:
             flash(f"Error adding {tx_type}: {str(e)}", 'error')
 
-    categories = DEFAULT_CATEGORIES
+    expense_categories = DEFAULT_EXPENSE_CATEGORIES
+    income_categories = DEFAULT_INCOME_CATEGORIES
     try:
         banks = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute().data
         prof = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
         currency = prof.data[0]['currency'] if prof.data else '₹'
-        categories = get_all_categories(token, session['user'])
+        expense_categories = get_all_categories(token, session['user'], 'expense')
+        income_categories = get_all_categories(token, session['user'], 'income')
     except Exception:
         banks, currency = [], '₹'
-    return render_template('add.html', today=datetime.date.today(), expense=None, banks=banks, currency=currency, categories=categories)
+    return render_template('add.html', today=datetime.date.today(), expense=None, banks=banks, currency=currency,
+                           expense_categories=expense_categories, income_categories=income_categories)
 
 @app.route('/bulk_add', methods=['GET', 'POST'])
 def bulk_add():
@@ -1041,16 +1063,19 @@ def edit_expense(expense_id):
         res = get_db(token).table('expenses').select('*').eq('id', expense_id).execute()
         expense = res.data[0] if res.data else None
         banks = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute().data
-        categories = get_all_categories(token, session['user'])
+        expense_categories = get_all_categories(token, session['user'], 'expense')
+        income_categories = get_all_categories(token, session['user'], 'income')
         prof = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
         currency = prof.data[0]['currency'] if prof.data else '₹'
     except Exception:
-        expense, banks, currency, categories = None, [], '₹', DEFAULT_CATEGORIES
+        expense, banks, currency = None, [], '₹'
+        expense_categories, income_categories = DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES
 
     if not expense:
         flash('Transaction not found', 'error')
         return redirect(url_for('dashboard'))
-    return render_template('add.html', expense=expense, banks=banks, today=datetime.date.today(), currency=currency, categories=categories)
+    return render_template('add.html', expense=expense, banks=banks, today=datetime.date.today(), currency=currency,
+                           expense_categories=expense_categories, income_categories=income_categories)
 
 @app.route('/delete_expense/<expense_id>')
 def delete_expense(expense_id):
