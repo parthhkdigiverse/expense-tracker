@@ -1392,12 +1392,12 @@ def handle_exception(e):
     if isinstance(e, HTTPException):
         return e
 
-    # Check for specific Supabase JWT Expiry Error (PGRST303)
-    error_str = str(e)
-    if "JWT expired" in error_str or "PGRST303" in error_str:
-        print("CRITICAL: Caught Dead JWT. Forcing Logout.")
+    # Check for specific Supabase JWT Expiry / Auth Errors
+    error_str = str(e).lower()
+    if any(keyword in error_str for keyword in ['jwt expired', 'pgrst301', 'pgrst303', 'token is expired', 'invalid jwt', 'invalid claim', 'not authenticated']):
+        print(f"CRITICAL: Caught expired/invalid JWT. Forcing Logout. Error: {e}")
         session.clear()
-        flash("Security token expired. Please login again.", "warning")
+        flash("Session expired. Please login again.", "warning")
         return redirect(url_for('login'))
 
     # For all other real code errors, log them
@@ -1405,7 +1405,16 @@ def handle_exception(e):
     import traceback; traceback.print_exc()
     if app.debug:
         raise e
-    return render_template('500.html'), 500
+    # Return inline error page (no template dependency)
+    return '''
+    <!DOCTYPE html>
+    <html><head><title>Server Error</title>
+    <style>body{font-family:Inter,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f9fafb;color:#111827;}
+    .box{text-align:center;padding:3rem;background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08);max-width:420px;}
+    h1{font-size:3rem;margin:0;color:#6366f1;}p{color:#6b7280;margin:1rem 0;}
+    a{display:inline-block;margin-top:1rem;padding:.75rem 2rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;text-decoration:none;border-radius:99px;font-weight:600;}</style>
+    </head><body><div class="box"><h1>500</h1><p>Something went wrong on our end.</p><a href="/">Go Home</a></div></body></html>
+    ''', 500
 
 if __name__ == '__main__':
     app.run(debug=True)
