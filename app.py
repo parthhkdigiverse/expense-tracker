@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file, current_app
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from functools import wraps
@@ -176,7 +176,7 @@ def get_user_profile(token):
     try:
         res = get_db(token).table('profiles').select('*').eq('id', session['user']).execute()
         return res.data[0] if res.data else {}
-    except:
+    except Exception:
         return {}
 
 def check_recurring_expenses(user_id, token):
@@ -219,7 +219,7 @@ def get_all_categories(token, user_id):
         res = get_db(token).table('user_categories').select('name').eq('user_id', user_id).execute()
         custom_cats = [r['name'] for r in res.data]
         return DEFAULT_CATEGORIES + custom_cats
-    except:
+    except Exception:
         return DEFAULT_CATEGORIES
 
 def get_filtered_expenses(token, user_id, args):
@@ -795,7 +795,7 @@ def profile():
 
         try:
             get_db(token).table('profiles').update({
-                'full_name': full_name, # 'username': new_username, 'avatar_url': avatar_url, 'budget': float(budget_val), 'currency': currency_val
+                'full_name': full_name,
                 'username': new_username,
                 'avatar_url': avatar_url,
                 'budget': float(budget_val),
@@ -900,7 +900,7 @@ def categories():
         token = session.get('access_token')
         res = get_db(token).table('user_categories').select('*').eq('user_id', session['user']).execute()
         custom_categories = res.data
-    except:
+    except Exception:
         custom_categories = []
     return render_template('categories.html', custom_categories=custom_categories, default_categories=DEFAULT_CATEGORIES)
 
@@ -981,7 +981,7 @@ def add_expense():
         prof = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
         currency = prof.data[0]['currency'] if prof.data else '₹'
         categories = get_all_categories(token, session['user'])
-    except:
+    except Exception:
         banks, currency = [], '₹'
     return render_template('add.html', today=datetime.date.today(), expense=None, banks=banks, currency=currency, categories=categories)
 
@@ -1013,7 +1013,7 @@ def bulk_add():
         prof = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
         currency = prof.data[0]['currency'] if prof.data else '₹'
         categories = get_all_categories(token, session['user'])
-    except:
+    except Exception:
         banks, currency, categories = [], '₹', DEFAULT_CATEGORIES
     return render_template('bulk_add.html', today=datetime.date.today(), banks=banks, currency=currency, categories=categories)
 
@@ -1040,7 +1040,7 @@ def edit_expense(expense_id):
         categories = get_all_categories(token, session['user'])
         prof = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
         currency = prof.data[0]['currency'] if prof.data else '₹'
-    except:
+    except Exception:
         expense, banks, currency, categories = None, [], '₹', DEFAULT_CATEGORIES
 
     if not expense:
@@ -1201,7 +1201,7 @@ def email_report_route():
     if not email:
         try:
              email = supabase.auth.get_user(token).user.email
-        except:
+        except Exception:
              flash('Could not determine email.', 'error')
              return redirect(url_for('dashboard'))
     try:
@@ -1268,7 +1268,7 @@ def debts():
         banks = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute().data
         prof = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
         currency = prof.data[0]['currency'] if prof.data else '₹'
-    except:
+    except Exception:
         lent_list, borrowed_list, banks, currency = [], [], [], '₹'
     return render_template('debts.html', lent_list=lent_list, borrowed_list=borrowed_list, banks=banks, currency=currency, today=datetime.date.today())
 
