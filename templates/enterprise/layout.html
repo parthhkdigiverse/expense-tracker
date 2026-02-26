@@ -41,6 +41,8 @@
             class="nav-tab {{ 'active' if request.endpoint == 'enterprise.members' else '' }}">🤝 Members</a>
         <a href="{{ url_for('enterprise.investments') }}"
             class="nav-tab {{ 'active' if request.endpoint == 'enterprise.investments' else '' }}">💼 Investments</a>
+        <a href="{{ url_for('enterprise.firms') }}"
+            class="nav-tab {{ 'active' if request.endpoint == 'enterprise.firms' else '' }}">🏢 Firms</a>
     </div>
 
     <div class="ent-content">

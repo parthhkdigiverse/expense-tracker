@@ -58,6 +58,7 @@
                     <th>Type</th>
                     <th>Method</th>
                     <th>Taken By</th>
+                    <th>Firm</th>
                     <th class="col-narrative">Narrative</th>
                     <th class="text-right">Amount</th>
                 </tr>
@@ -96,6 +97,7 @@
                         </span>
                     </td>
                     <td class="text-nowrap">{{ item.taken_by_name or 'System' }}</td>
+                    <td>{{ item.firm if item.firm else '—' }}</td>
                     <td class="col-narrative">{{ item.narrative }}</td>
                     <td
                         class="text-right font-bold {{ 'status-positive' if item.type == 'Income' else 'status-negative' }}">
@@ -105,7 +107,7 @@
                 {% endfor %}
                 {% if not ledger %}
                 <tr>
-                    <td colspan="6" class="text-center" style="padding: 3rem; color: var(--text-tertiary);">
+                    <td colspan="7" class="text-center" style="padding: 3rem; color: var(--text-tertiary);">
                         No transactions found for this period.
                     </td>
                 </tr>
@@ -162,6 +164,16 @@
                     </option>
                     {% endfor %}
                     <option value="__other__">Other (type below)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Firm (Optional)</label>
+                <select name="firm" class="input-select full-width">
+                    <option value="">— Select Firm (Optional) —</option>
+                    {% for firm in firms_list %}
+                    <option value="{{ firm.name }}">{{ firm.name }}</option>
+                    {% endfor %}
                 </select>
             </div>
 

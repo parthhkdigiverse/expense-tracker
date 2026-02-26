@@ -13,6 +13,24 @@ from utils import generate_pdf_report, send_email_report
 from blueprints.enterprise import enterprise_bp
 from blueprints.database_service import SupabaseService, get_supabase_client
 from blueprints.admin import admin_bp
+import socket
+
+# --- START: Local ISP DNS Sinkhole Bypass for Supabase ---
+_orig_getaddrinfo = socket.getaddrinfo
+
+def _patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    if host == 'xzruruiyngabgshvsckl.supabase.co':
+        try:
+            res = _orig_getaddrinfo(host, port, family, type, proto, flags)
+            if any(ip[4][0].startswith('49.44.') for ip in res):
+                return [(socket.AF_INET, type if type else socket.SOCK_STREAM, proto if proto else socket.IPPROTO_TCP, '', ('104.18.38.10', port))]
+            return res
+        except socket.gaierror:
+            return [(socket.AF_INET, type if type else socket.SOCK_STREAM, proto if proto else socket.IPPROTO_TCP, '', ('104.18.38.10', port))]
+    return _orig_getaddrinfo(host, port, family, type, proto, flags)
+
+socket.getaddrinfo = _patched_getaddrinfo
+# --- END: Local ISP DNS Sinkhole Bypass for Supabase ---
 
 load_dotenv()
 

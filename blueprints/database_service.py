@@ -62,6 +62,9 @@ class BaseService:
     def verify_or_create_business_access(self, user_id: str, business_name: str) -> bool: raise NotImplementedError
     def get_user_businesses(self, user_id: str) -> List[Dict[str, Any]]: raise NotImplementedError
     def get_personal_transactions(self, user_id: str, filters: dict) -> List[Dict[str, Any]]: raise NotImplementedError
+    def get_firms(self, org_id: str) -> List[Dict[str, Any]]: raise NotImplementedError
+    def add_firm(self, org_id: str, name: str, opening_balance: float, current_bank_balance: float) -> bool: raise NotImplementedError
+    def delete_firm(self, firm_id: str, org_id: str) -> bool: raise NotImplementedError
 
 # ── Supabase Implementation ────────────────────────────────────────────────────
 class SupabaseService(BaseService):
@@ -536,6 +539,7 @@ class SupabaseService(BaseService):
                 'narrative':       narrative,
                 'source':          taken_by,
                 'description':     narrative,
+                'firm':            data.get('firm') or None,
             }).execute()
             return True
         except Exception as e:
@@ -568,6 +572,7 @@ class SupabaseService(BaseService):
                 'status':          'pending',
                 'paid_amount':     0,
                 'remaining_amount':amt,
+                'firm':            data.get('firm') or None,
             }).execute()
             return True
         except Exception as e:
@@ -644,6 +649,36 @@ class SupabaseService(BaseService):
     def find_profile_by_email(self, email: str) -> Optional[Dict[str, Any]]:
         res = self.db.table('profiles').select('*').eq('email', email).execute()
         return res.data[0] if res.data else None
+
+    # ── Firms ─────────────────────────────────────────────────────────────────
+    def get_firms(self, org_id: str) -> List[Dict[str, Any]]:
+        try:
+            res = self.db.table('ent_firms').select('*').eq('organization_id', org_id).order('created_at', desc=True).execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[get_firms] {e}")
+            return []
+
+    def add_firm(self, org_id: str, name: str, opening_balance: float, current_bank_balance: float) -> bool:
+        try:
+            self.db.table('ent_firms').insert({
+                'organization_id': org_id,
+                'name': name,
+                'opening_balance': opening_balance,
+                'current_bank_balance': current_bank_balance
+            }).execute()
+            return True
+        except Exception as e:
+            print(f"[add_firm] {e}")
+            return False
+
+    def delete_firm(self, firm_id: str, org_id: str) -> bool:
+        try:
+            self.db.table('ent_firms').delete().eq('id', firm_id).eq('organization_id', org_id).execute()
+            return True
+        except Exception as e:
+            print(f"[delete_firm] {e}")
+            return False
 
     # ── Banks — Personal ──────────────────────────────────────────────────────
     def get_personal_banks(self, user_id: str) -> List[Dict[str, Any]]:

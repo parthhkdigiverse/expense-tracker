@@ -413,6 +413,55 @@ def members():
     staff_list = svc.get_org_members(org_id)
     return render_template('enterprise/members.html', staff_list=staff_list)
 
+# ── Firms ─────────────────────────────────────────────────────────────────────
+@enterprise_bp.route('/firms', methods=['GET'])
+@enterprise_required
+def firms():
+    org_id = session.get('curr_org_id')
+    svc = _svc()
+    
+    try:
+        firms_list = svc.get_firms(org_id)
+    except Exception as e:
+        current_app.logger.error(f"Error loading firms: {e}")
+        flash(f"Error loading firms: {str(e)}", "error")
+        firms_list = []
+        
+    return render_template('enterprise/firms.html', firms_list=firms_list, currency='₹')
+
+@enterprise_bp.route('/firms/add', methods=['POST'])
+@enterprise_required
+def add_firm():
+    org_id = session.get('curr_org_id')
+    svc = _svc()
+    
+    name = request.form.get('name', '').strip()
+    try:
+        opening_balance = float(request.form.get('opening_balance', 0) or 0)
+        current_bank_balance = float(request.form.get('current_bank_balance', 0) or 0)
+    except ValueError:
+        flash("Invalid balance amounts.", "error")
+        return redirect(url_for('enterprise.firms'))
+        
+    if not name:
+        flash("Firm name is required.", "error")
+    else:
+        ok = svc.add_firm(org_id, name, opening_balance, current_bank_balance)
+        flash(f"Firm '{name}' added successfully." if ok else "Error adding firm.", "success" if ok else "error")
+        
+    return redirect(url_for('enterprise.firms'))
+
+@enterprise_bp.route('/firms/delete/<firm_id>', methods=['POST'])
+@enterprise_required
+def delete_firm(firm_id):
+    org_id = session.get('curr_org_id')
+    svc = _svc()
+    
+    ok = svc.delete_firm(firm_id, org_id)
+    flash("Firm deleted successfully." if ok else "Error deleting firm.", "success" if ok else "error")
+    
+    return redirect(url_for('enterprise.firms'))
+
 # ── Combined Cashflow ─────────────────────────────────────────────────────────
 @enterprise_bp.route('/combined-cashflow')
 @enterprise_required
@@ -455,15 +504,18 @@ def revenue_expenses():
 
     try:
         org_members = svc.get_org_members(org_id)
+        firms_list = svc.get_firms(org_id)
     except Exception:
         org_members = []
+        firms_list = []
 
     return render_template('enterprise/revenue_expenses.html',
                            ledger=ledger, total_income=total_income,
                            total_expenses=total_expenses, period=period,
                            start_date=start_date, end_date=end_date,
                            enterprise_banks=enterprise_banks,
-                           categories=categories, org_members=org_members, currency='₹')
+                           categories=categories, org_members=org_members,
+                           firms_list=firms_list, currency='₹')
 
 # ── Add Transaction ───────────────────────────────────────────────────────────
 @enterprise_bp.route('/add-transaction', methods=['POST'])
@@ -495,7 +547,9 @@ def add_transaction():
         'narrative': narrative, 'category': category,
         'taken_by': taken_by_val,
         'bank_account_id': bank_account_id,
+        'firm': request.form.get('firm') or None,
     }
+    print("DEBUG Add Transaction Payload:", request.form)
     try:
         if t_type == 'Income':
             data.pop('category', None)
@@ -544,6 +598,7 @@ def holding_payments():
     svc     = _svc()
 
     if request.method == 'POST':
+        print("DEBUG Add Holding Payload:", request.form)
         data = {
             'name':          request.form.get('name', '').strip(),
             'type':          request.form.get('type', 'receivable'),
@@ -551,6 +606,7 @@ def holding_payments():
             'expected_date': request.form.get('expected_date', '').strip() or None,
             'mobile_no':     request.form.get('mobile_no', '').strip(),
             'narrative':     request.form.get('narrative', '').strip(),
+            'firm':          request.form.get('firm') or None,
         }
         if not data['name'] or not data['amount']:
             return jsonify({'success': False, 'error': 'Name and Amount are required.'}), 400
@@ -569,6 +625,7 @@ def holding_payments():
     active_biz = session.get('active_business', '')
     enterprise_banks = svc.get_banks_for_org(user_id, active_biz)
     org_members      = svc.get_org_members(org_id)
+    firms_list       = svc.get_firms(org_id)
 
     total_receivable = sum(Decimal(str(t.get('amount') or 0)) for t in transactions if t.get('type') == 'receivable')
     total_payable    = sum(Decimal(str(t.get('amount') or 0)) for t in transactions if t.get('type') == 'payable')
@@ -582,7 +639,8 @@ def holding_payments():
     }
     return render_template('enterprise/holding_payments.html',
                            transactions=transactions, kpis=kpis,
-                           enterprise_banks=enterprise_banks, org_members=org_members)
+                           enterprise_banks=enterprise_banks, org_members=org_members,
+                           firms_list=firms_list)
 
 @enterprise_bp.route('/holding-payments/settle', methods=['POST'])
 @enterprise_required
@@ -614,6 +672,7 @@ def investments():
     svc    = _svc()
 
     if request.method == 'POST':
+        print("DEBUG Add Investment Payload:", request.form)
         # Safely determine taken_by or fallback to the logged in user
         taken_by_val = request.form.get('taken_by', '').strip()
         if not taken_by_val or taken_by_val == '__other__':
@@ -625,6 +684,7 @@ def investments():
             'taken_by':  taken_by_val,
             'narrative': request.form.get('narrative', '').strip(),
             'amount':    request.form.get('amount', 0),
+            'firm':      request.form.get('firm') or None,
         }
         if not data['date'] or not data['amount']:
             return jsonify({'success': False, 'error': 'Date and Amount are required.'}), 400
@@ -643,6 +703,7 @@ def investments():
     active_biz       = session.get('active_business', '')
     enterprise_banks = svc.get_banks_for_org(session['user'], active_biz)
     org_members      = svc.get_org_members(org_id)
+    firms_list       = svc.get_firms(org_id)
 
     total_investment = sum(Decimal(str(i.get('amount') or 0)) for i in investments_list if i.get('type', 'investment') == 'investment')
     total_withdraw   = sum(Decimal(str(i.get('amount') or 0)) for i in investments_list if i.get('type') == 'withdraw')
@@ -656,7 +717,8 @@ def investments():
     }
     return render_template('enterprise/investments.html',
                            investments_list=investments_list, kpis=kpis,
-                           enterprise_banks=enterprise_banks, org_members=org_members)
+                           enterprise_banks=enterprise_banks, org_members=org_members,
+                           firms_list=firms_list)
 
 # ── Profile ───────────────────────────────────────────────────────────────────
 @enterprise_bp.route('/profile', methods=['GET', 'POST'])

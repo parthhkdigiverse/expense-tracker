@@ -87,6 +87,7 @@
             <thead>
                 <tr>
                     <th>Name</th>
+                    <th>Firm</th>
                     <th>Type</th>
                     <th>Amount (₹)</th>
                     <th>Paid (₹)</th>
@@ -104,6 +105,7 @@
                 {% set is_settled = t.status == 'settled' %}
                 <tr id="row-{{ t.id }}">
                     <td style="font-weight: 600;">{{ t.name }}</td>
+                    <td>{{ t.firm if t.firm else '—' }}</td>
                     <td>
                         <span style="padding: 0.2rem 0.65rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
                                          background: {{ '#dcfce7' if t.type == 'receivable' else '#fee2e2' }};
@@ -152,7 +154,7 @@
                 {% endfor %}
                 {% else %}
                 <tr id="emptyRow">
-                    <td colspan="10" style="text-align: center; color: var(--text-tertiary); padding: 2.5rem 0;">
+                    <td colspan="11" style="text-align: center; color: var(--text-tertiary); padding: 2.5rem 0;">
                         No transactions yet. Click <strong>+ Add Transaction</strong> to get started.
                     </td>
                 </tr>
@@ -205,6 +207,16 @@
                 </select>
                 <input type="text" name="taken_by_other" class="form-control" id="hpTakenByOther"
                     placeholder="Enter name manually" style="margin-top:0.4rem; display:none;">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1rem;">
+                <label style="font-weight: 600; font-size: 0.875rem;">Firm (Optional)</label>
+                <select name="firm" class="form-control" style="margin-top:0.35rem;">
+                    <option value="">— Select Firm (Optional) —</option>
+                    {% for firm in firms_list %}
+                    <option value="{{ firm.name }}">{{ firm.name }}</option>
+                    {% endfor %}
+                </select>
             </div>
             <div class="form-group" style="margin-bottom: 1rem;">
                 <label style="font-weight: 600; font-size: 0.875rem;">Amount (₹) <span
