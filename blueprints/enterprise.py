@@ -258,9 +258,41 @@ def ent_dashboard():
     svc    = _svc()
 
     try:
-        revenue_data = svc.get_revenue(org_id)
-        expense_data = svc.get_expenses(org_id)
-        invest_data  = svc.get_investments(org_id)
+        today = datetime.date.today()
+        period = request.args.get('time_period', 'This Month')
+        if period == 'This Month':
+            start_date = today.replace(day=1).strftime('%Y-%m-%d')
+            end_date   = today.strftime('%Y-%m-%d')
+        elif period == 'Last Month':
+            last = today.replace(day=1) - datetime.timedelta(days=1)
+            start_date = last.replace(day=1).strftime('%Y-%m-%d')
+            end_date   = last.strftime('%Y-%m-%d')
+        elif period == 'This Year':
+            start_date = today.replace(month=1, day=1).strftime('%Y-%m-%d')
+            end_date   = today.strftime('%Y-%m-%d')
+        else: # All Time
+            start_date = None
+            end_date   = None
+
+        filters = {
+            'start_date': start_date,
+            'end_date': end_date,
+            'type': request.args.get('type', 'All'),
+            'staff': request.args.get('staff', 'All'),
+            'firm': request.args.get('firm', 'All'),
+            'method': request.args.get('method', 'All')
+        }
+
+        data = svc.get_enterprise_dashboard_data(org_id, filters)
+        revenue_data = data['revenue']
+        expense_data = data['expenses']
+        invest_data  = data['investments']
+        holding_data = data['holdings']
+
+        # Dropdowns lookup
+        staff_list = svc.get_org_members(org_id)
+        firms_list = svc.get_firms(org_id)
+        enterprise_banks = svc.get_banks_for_org(session['user'], session.get('active_business'))
 
         total_rev    = sum(Decimal(str(r.get('amount') or 0)) for r in revenue_data)
         total_exp    = sum(Decimal(str(e.get('amount') or 0)) for e in expense_data)
@@ -322,11 +354,26 @@ def ent_dashboard():
              'positive': year_rev >= year_exp, 'can_download': True, 'dl_params': "period=this_year"},
         ]
 
+        recent_transactions = sorted(
+            [{**r, 'tx_type': 'Income'} for r in revenue_data] +
+            [{**e, 'tx_type': 'Expense'} for e in expense_data] +
+            [{**i, 'tx_type': 'Investment'} for i in invest_data] +
+            [{**h, 'tx_type': 'Holding', 'amount': h.get('amount'), 'date': h.get('expected_date') or str(h.get('created_at', ''))[:10]} for h in holding_data],
+            key=lambda x: str(x.get('date', '1970-01-01')), reverse=True
+        )[:50]
+
         org_name = svc.get_organization_name(org_id) or 'Enterprise'
         return render_template('enterprise/dashboard.html',
                                kpis=kpis, trend_labels=trend_months,
                                rev_trend=rev_trend, exp_trend=exp_trend,
-                               report_data=report_data, org_name=org_name, currency='₹')
+                               report_data=report_data, recent_transactions=recent_transactions,
+                               org_name=org_name, currency='₹',
+                               time_period=period, tx_type=request.args.get('type', 'All'),
+                               staff_filter=request.args.get('staff', 'All'),
+                               firm_filter=request.args.get('firm', 'All'),
+                               method_filter=request.args.get('method', 'All'),
+                               staff_list=staff_list, firms_list=firms_list,
+                               enterprise_banks=enterprise_banks)
 
     except Exception as e:
         current_app.logger.error(f"Enterprise Dashboard Error: {e}", exc_info=True)
@@ -338,9 +385,11 @@ def ent_dashboard():
 @enterprise_required
 def revenue():
     org_id     = session.get('curr_org_id')
+    svc        = _svc()
     period     = request.args.get('period', 'this_month')
     start_date = request.args.get('start_date')
     end_date   = request.args.get('end_date')
+    selected_firm = request.args.get('firm', 'All')
     today      = datetime.date.today()
     if period == 'this_month':
         start_date = today.replace(day=1).strftime('%Y-%m-%d')
@@ -356,10 +405,12 @@ def revenue():
         start_date = today.replace(month=1, day=1).strftime('%Y-%m-%d')
         end_date   = today.strftime('%Y-%m-%d')
     try:
-        revenue_list = _svc().get_revenue(org_id, start_date, end_date)
+        firms_list = svc.get_firms(org_id)
+        revenue_list = svc.get_revenue(org_id, start_date, end_date, selected_firm)
         return render_template('enterprise/revenue.html',
                                revenue_list=revenue_list, period=period,
-                               start_date=start_date, end_date=end_date, currency='₹')
+                               start_date=start_date, end_date=end_date, currency='₹',
+                               firms_list=firms_list, selected_firm=selected_firm)
     except Exception as e:
         flash(f"Error loading revenue: {str(e)}", "error")
         return redirect(url_for('enterprise.ent_dashboard'))
@@ -369,9 +420,11 @@ def revenue():
 @enterprise_required
 def expenses():
     org_id     = session.get('curr_org_id')
+    svc        = _svc()
     period     = request.args.get('period', 'this_month')
     start_date = request.args.get('start_date')
     end_date   = request.args.get('end_date')
+    selected_firm = request.args.get('firm', 'All')
     today      = datetime.date.today()
     if period == 'this_month':
         start_date = today.replace(day=1).strftime('%Y-%m-%d')
@@ -387,10 +440,12 @@ def expenses():
         start_date = today.replace(month=1, day=1).strftime('%Y-%m-%d')
         end_date   = today.strftime('%Y-%m-%d')
     try:
-        expenses_list = _svc().get_expenses(org_id, start_date, end_date)
+        firms_list = svc.get_firms(org_id)
+        expenses_list = svc.get_expenses(org_id, start_date, end_date, selected_firm)
         return render_template('enterprise/expenses.html',
                                expenses_list=expenses_list, period=period,
-                               start_date=start_date, end_date=end_date, currency='₹')
+                               start_date=start_date, end_date=end_date, currency='₹',
+                               firms_list=firms_list, selected_firm=selected_firm)
     except Exception as e:
         flash(f"Error loading expenses: {str(e)}", "error")
         return redirect(url_for('enterprise.ent_dashboard'))
@@ -422,12 +477,15 @@ def firms():
     
     try:
         firms_list = svc.get_firms(org_id)
+        # Fetch the dynamically calculated available balance
+        available_balance = svc.get_available_org_opening_balance(org_id)
     except Exception as e:
         current_app.logger.error(f"Error loading firms: {e}")
         flash(f"Error loading firms: {str(e)}", "error")
         firms_list = []
+        available_balance = 0.0
         
-    return render_template('enterprise/firms.html', firms_list=firms_list, currency='₹')
+    return render_template('enterprise/firms.html', firms_list=firms_list, available_balance=available_balance, currency='₹')
 
 @enterprise_bp.route('/firms/add', methods=['POST'])
 @enterprise_required
@@ -438,7 +496,6 @@ def add_firm():
     name = request.form.get('name', '').strip()
     try:
         opening_balance = float(request.form.get('opening_balance', 0) or 0)
-        current_bank_balance = float(request.form.get('current_bank_balance', 0) or 0)
     except ValueError:
         flash("Invalid balance amounts.", "error")
         return redirect(url_for('enterprise.firms'))
@@ -446,8 +503,13 @@ def add_firm():
     if not name:
         flash("Firm name is required.", "error")
     else:
-        ok = svc.add_firm(org_id, name, opening_balance, current_bank_balance)
-        flash(f"Firm '{name}' added successfully." if ok else "Error adding firm.", "success" if ok else "error")
+        # Check available allocation before executing DB insert
+        available = svc.get_available_org_opening_balance(org_id)
+        if opening_balance > available:
+            flash(f"Allocation exceeds available Organization Opening Balance.", "error")
+        else:
+            ok = svc.add_firm(org_id, name, opening_balance)
+            flash(f"Firm '{name}' added successfully." if ok else "Error adding firm.", "success" if ok else "error")
         
     return redirect(url_for('enterprise.firms'))
 
@@ -616,8 +678,30 @@ def holding_payments():
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
 
+    period     = request.args.get('period', 'this_month')
+    start_date = request.args.get('start_date')
+    end_date   = request.args.get('end_date')
+    hold_type  = request.args.get('type', 'All')
+    handled_by = request.args.get('staff', 'All')
+    status_val = request.args.get('status', 'All')
+    firm_val   = request.args.get('firm', 'All')
+    today      = datetime.date.today()
+    if period == 'this_month':
+        start_date = today.replace(day=1).strftime('%Y-%m-%d')
+        end_date   = today.strftime('%Y-%m-%d')
+    elif period == 'this_week':
+        start_date = (today - datetime.timedelta(days=today.weekday())).strftime('%Y-%m-%d')
+        end_date   = today.strftime('%Y-%m-%d')
+    elif period == 'last_month':
+        last = today.replace(day=1) - datetime.timedelta(days=1)
+        start_date = last.replace(day=1).strftime('%Y-%m-%d')
+        end_date   = last.strftime('%Y-%m-%d')
+    elif period == 'this_year':
+        start_date = today.replace(month=1, day=1).strftime('%Y-%m-%d')
+        end_date   = today.strftime('%Y-%m-%d')
+
     try:
-        transactions = svc.get_holding_payments(org_id)
+        transactions = svc.get_holding_payments(org_id, start_date, end_date, hold_type, handled_by, firm_val, status_val)
     except Exception as e:
         flash(f"Error loading holding payments: {str(e)}", "error")
         transactions = []
@@ -640,7 +724,9 @@ def holding_payments():
     return render_template('enterprise/holding_payments.html',
                            transactions=transactions, kpis=kpis,
                            enterprise_banks=enterprise_banks, org_members=org_members,
-                           firms_list=firms_list)
+                           firms_list=firms_list, period=period, start_date=start_date,
+                           end_date=end_date, hold_type=hold_type, handled_by=handled_by,
+                           status_val=status_val, firm_val=firm_val)
 
 @enterprise_bp.route('/holding-payments/settle', methods=['POST'])
 @enterprise_required
@@ -694,8 +780,29 @@ def investments():
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
 
+    period     = request.args.get('period', 'this_month')
+    start_date = request.args.get('start_date')
+    end_date   = request.args.get('end_date')
+    inv_type   = request.args.get('type', 'All')
+    taken_by   = request.args.get('staff', 'All')
+    firm_val   = request.args.get('firm', 'All')
+    today      = datetime.date.today()
+    if period == 'this_month':
+        start_date = today.replace(day=1).strftime('%Y-%m-%d')
+        end_date   = today.strftime('%Y-%m-%d')
+    elif period == 'this_week':
+        start_date = (today - datetime.timedelta(days=today.weekday())).strftime('%Y-%m-%d')
+        end_date   = today.strftime('%Y-%m-%d')
+    elif period == 'last_month':
+        last = today.replace(day=1) - datetime.timedelta(days=1)
+        start_date = last.replace(day=1).strftime('%Y-%m-%d')
+        end_date   = last.strftime('%Y-%m-%d')
+    elif period == 'this_year':
+        start_date = today.replace(month=1, day=1).strftime('%Y-%m-%d')
+        end_date   = today.strftime('%Y-%m-%d')
+
     try:
-        investments_list = svc.get_investments(org_id)
+        investments_list = svc.get_investments(org_id, start_date, end_date, inv_type, taken_by, firm_val)
     except Exception as e:
         flash(f"Error loading investments: {str(e)}", "error")
         investments_list = []
@@ -718,7 +825,9 @@ def investments():
     return render_template('enterprise/investments.html',
                            investments_list=investments_list, kpis=kpis,
                            enterprise_banks=enterprise_banks, org_members=org_members,
-                           firms_list=firms_list)
+                           firms_list=firms_list, period=period, start_date=start_date,
+                           end_date=end_date, inv_type=inv_type, taken_by=taken_by,
+                           firm_val=firm_val)
 
 # ── Profile ───────────────────────────────────────────────────────────────────
 @enterprise_bp.route('/profile', methods=['GET', 'POST'])

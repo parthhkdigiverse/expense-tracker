@@ -37,11 +37,11 @@ class BaseService:
     def get_user_organizations(self, user_id: str) -> List[Dict[str, Any]]: raise NotImplementedError
     def get_organization_name(self, org_id: str) -> Optional[str]: raise NotImplementedError
     def get_org_id_by_name(self, user_id: str, org_name: str) -> Optional[str]: raise NotImplementedError
-    def get_revenue(self, org_id: str, start_date: str = None, end_date: str = None) -> List[Dict[str, Any]]: raise NotImplementedError
-    def get_expenses(self, org_id: str, start_date: str = None, end_date: str = None) -> List[Dict[str, Any]]: raise NotImplementedError
+    def get_revenue(self, org_id: str, start_date: str = None, end_date: str = None, firm: str = None) -> List[Dict[str, Any]]: raise NotImplementedError
+    def get_expenses(self, org_id: str, start_date: str = None, end_date: str = None, firm: str = None) -> List[Dict[str, Any]]: raise NotImplementedError
     def add_revenue(self, org_id: str, data: Dict[str, Any]) -> bool: raise NotImplementedError
     def add_expense(self, org_id: str, data: Dict[str, Any]) -> bool: raise NotImplementedError
-    def get_investments(self, org_id: str) -> List[Dict[str, Any]]: raise NotImplementedError
+    def get_investments(self, org_id: str, start_date: str = None, end_date: str = None, inv_type: str = None, taken_by: str = None, firm: str = None) -> List[Dict[str, Any]]: raise NotImplementedError
     def add_investment(self, org_id: str, data: dict) -> bool: raise NotImplementedError
     def get_members(self, org_id: str) -> List[Dict[str, Any]]: raise NotImplementedError
     def add_member(self, org_id: str, user_id: str, role: str = 'member') -> bool: raise NotImplementedError
@@ -53,7 +53,7 @@ class BaseService:
     def update_enterprise_bank(self, user_id: str, bank_id: str, data: Dict[str, Any]) -> bool: raise NotImplementedError
     def delete_enterprise_bank(self, user_id: str, bank_id: str) -> bool: raise NotImplementedError
     def get_categories(self, user_id: str) -> List[str]: raise NotImplementedError
-    def get_holding_payments(self, org_id: str) -> List[Dict[str, Any]]: raise NotImplementedError
+    def get_holding_payments(self, org_id: str, start_date: str = None, end_date: str = None, hold_type: str = None, handled_by: str = None, firm: str = None, status: str = None) -> List[Dict[str, Any]]: raise NotImplementedError
     def add_holding_payment(self, org_id: str, user_id: str, data: dict) -> bool: raise NotImplementedError
     def settle_holding_payment(self, txn_id: str, org_id: str, settle_type: str, part_amount: float = 0) -> dict: raise NotImplementedError
     def provision_business_org(self, user_id: str, business_name: str) -> Optional[str]: raise NotImplementedError
@@ -62,8 +62,10 @@ class BaseService:
     def verify_or_create_business_access(self, user_id: str, business_name: str) -> bool: raise NotImplementedError
     def get_user_businesses(self, user_id: str) -> List[Dict[str, Any]]: raise NotImplementedError
     def get_personal_transactions(self, user_id: str, filters: dict) -> List[Dict[str, Any]]: raise NotImplementedError
+    def get_enterprise_dashboard_data(self, org_id: str, filters: dict) -> Dict[str, Any]: raise NotImplementedError
+    def get_available_org_opening_balance(self, org_id: str) -> float: raise NotImplementedError
     def get_firms(self, org_id: str) -> List[Dict[str, Any]]: raise NotImplementedError
-    def add_firm(self, org_id: str, name: str, opening_balance: float, current_bank_balance: float) -> bool: raise NotImplementedError
+    def add_firm(self, org_id: str, name: str, opening_balance: float) -> bool: raise NotImplementedError
     def delete_firm(self, firm_id: str, org_id: str) -> bool: raise NotImplementedError
 
 # ── Supabase Implementation ────────────────────────────────────────────────────
@@ -466,12 +468,13 @@ class SupabaseService(BaseService):
             print(f"[provision_business_org] {e}")
             return None
 
-    def get_revenue(self, org_id: str, start_date: str = None, end_date: str = None) -> List[Dict[str, Any]]:
+    def get_revenue(self, org_id: str, start_date: str = None, end_date: str = None, firm: str = None) -> List[Dict[str, Any]]:
         query = self.db.table('ent_revenue') \
             .select('*, enterprise_bank_accounts(bank_name)') \
             .eq('organization_id', org_id)
         if start_date: query = query.gte('date', start_date)
         if end_date:   query = query.lte('date', end_date)
+        if firm and str(firm).lower() != 'all': query = query.eq('firm', firm)
         res = query.order('date', desc=True).execute()
         return [
             {
@@ -492,12 +495,13 @@ class SupabaseService(BaseService):
             return False
 
     # ── Expenses ──────────────────────────────────────────────────────────────
-    def get_expenses(self, org_id: str, start_date: str = None, end_date: str = None) -> List[Dict[str, Any]]:
+    def get_expenses(self, org_id: str, start_date: str = None, end_date: str = None, firm: str = None) -> List[Dict[str, Any]]:
         query = self.db.table('ent_expenses') \
             .select('*, enterprise_bank_accounts(bank_name)') \
             .eq('organization_id', org_id)
         if start_date: query = query.gte('date', start_date)
         if end_date:   query = query.lte('date', end_date)
+        if firm and str(firm).lower() != 'all': query = query.eq('firm', firm)
         res = query.order('date', desc=True).execute()
         return [
             {
@@ -518,9 +522,16 @@ class SupabaseService(BaseService):
             return False
 
     # ── Investments ───────────────────────────────────────────────────────────
-    def get_investments(self, org_id: str) -> List[Dict[str, Any]]:
+    def get_investments(self, org_id: str, start_date: str = None, end_date: str = None, inv_type: str = None, taken_by: str = None, firm: str = None) -> List[Dict[str, Any]]:
         try:
-            res = self.db.table('ent_investments').select('*').eq('organization_id', org_id).order('date', desc=True).execute()
+            query = self.db.table('ent_investments').select('*').eq('organization_id', org_id)
+            if start_date: query = query.gte('date', start_date)
+            if end_date:   query = query.lte('date', end_date)
+            if inv_type and str(inv_type).lower() != 'all': query = query.eq('type', str(inv_type).lower())
+            if taken_by and str(taken_by).lower() != 'all': query = query.eq('taken_by', taken_by)
+            if firm and str(firm).lower() != 'all': query = query.eq('firm', firm)
+            
+            res = query.order('date', desc=True).execute()
             return res.data or []
         except Exception as e:
             print(f"[get_investments] {e}")
@@ -547,11 +558,18 @@ class SupabaseService(BaseService):
             return False
 
     # ── Holding Payments ──────────────────────────────────────────────────────
-    def get_holding_payments(self, org_id: str) -> List[Dict[str, Any]]:
+    def get_holding_payments(self, org_id: str, start_date: str = None, end_date: str = None, hold_type: str = None, handled_by: str = None, firm: str = None, status: str = None) -> List[Dict[str, Any]]:
         try:
-            res = self.db.table('ent_holding_payments') \
-                .select('*').eq('organization_id', org_id) \
-                .order('created_at', desc=True).execute()
+            query = self.db.table('ent_holding_payments').select('*').eq('organization_id', org_id)
+            
+            if start_date: query = query.gte('created_at', f"{start_date}T00:00:00Z")
+            if end_date:   query = query.lte('created_at', f"{end_date}T23:59:59Z")
+            if hold_type and str(hold_type).lower() != 'all': query = query.eq('type', str(hold_type).lower())
+            if handled_by and str(handled_by).lower() != 'all': query = query.eq('created_by', handled_by)
+            if firm and str(firm).lower() != 'all': query = query.eq('firm', firm)
+            if status and str(status).lower() != 'all': query = query.eq('status', str(status).lower())
+
+            res = query.order('created_at', desc=True).execute()
             return res.data or []
         except Exception as e:
             print(f"[get_holding_payments] {e}")
@@ -651,21 +669,86 @@ class SupabaseService(BaseService):
         return res.data[0] if res.data else None
 
     # ── Firms ─────────────────────────────────────────────────────────────────
+    def get_available_org_opening_balance(self, org_id: str) -> float:
+        try:
+            org_name = self.get_organization_name(org_id)
+            if not org_name:
+                return 0.0
+
+            # Sum of total bank opening balances for this organization
+            banks_res = self.db.table('enterprise_bank_accounts').select('opening_balance').eq('business_name', org_name).execute()
+            total_bank_balance = sum(float(b.get('opening_balance', 0) or 0) for b in (banks_res.data or []))
+
+            # Sum of allocated firm opening balances
+            firms_res = self.db.table('ent_firms').select('opening_balance').eq('organization_id', org_id).execute()
+            total_firm_balance = sum(float(f.get('opening_balance', 0) or 0) for f in (firms_res.data or []))
+
+            return float(total_bank_balance - total_firm_balance)
+        except Exception as e:
+            print(f"[get_available_org_opening_balance] {e}")
+            return 0.0
+
     def get_firms(self, org_id: str) -> List[Dict[str, Any]]:
         try:
             res = self.db.table('ent_firms').select('*').eq('organization_id', org_id).order('created_at', desc=True).execute()
-            return res.data or []
+            firms = res.data or []
+            
+            # Fetch all transactions to compute the dynamic current balance
+            rev_res = self.db.table('ent_revenue').select('amount, firm').eq('organization_id', org_id).execute()
+            exp_res = self.db.table('ent_expenses').select('amount, firm').eq('organization_id', org_id).execute()
+            inv_res = self.db.table('ent_investments').select('amount, type, firm').eq('organization_id', org_id).execute()
+            hold_res = self.db.table('ent_holding_payments').select('paid_amount, type, firm').eq('organization_id', org_id).execute()
+            
+            for firm in firms:
+                firm_name = firm['name']
+                current_balance = float(firm.get('opening_balance', 0) or 0)
+                
+                # + Revenues
+                for r in (rev_res.data or []):
+                    if r.get('firm') == firm_name:
+                        current_balance += float(r.get('amount', 0) or 0)
+                        
+                # - Expenses
+                for e in (exp_res.data or []):
+                    if e.get('firm') == firm_name:
+                        current_balance -= float(e.get('amount', 0) or 0)
+                        
+                # +/- Investments In/Out
+                for i in (inv_res.data or []):
+                    if i.get('firm') == firm_name:
+                        amt = float(i.get('amount', 0) or 0)
+                        if i.get('type', 'investment') == 'investment':
+                            current_balance += amt
+                        else:  # withdraw
+                            current_balance -= amt
+                            
+                # +/- Holding Payments Settled
+                for h in (hold_res.data or []):
+                    if h.get('firm') == firm_name:
+                        paid = float(h.get('paid_amount', 0) or 0)
+                        if h.get('type') == 'receivable':
+                            current_balance += paid
+                        elif h.get('type') == 'payable':
+                            current_balance -= paid
+                            
+                firm['current_balance'] = current_balance
+                
+            return firms
         except Exception as e:
             print(f"[get_firms] {e}")
             return []
 
-    def add_firm(self, org_id: str, name: str, opening_balance: float, current_bank_balance: float) -> bool:
+    def add_firm(self, org_id: str, name: str, opening_balance: float) -> bool:
         try:
+            # Verify the requested balance does not exceed the available limit
+            available = self.get_available_org_opening_balance(org_id)
+            if opening_balance > available:
+                return False
+
             self.db.table('ent_firms').insert({
                 'organization_id': org_id,
                 'name': name,
-                'opening_balance': opening_balance,
-                'current_bank_balance': current_bank_balance
+                'opening_balance': opening_balance
             }).execute()
             return True
         except Exception as e:
@@ -796,3 +879,101 @@ class SupabaseService(BaseService):
         except Exception as e:
             print(f"[get_personal_transactions] {e}")
             return []
+
+    # ── Enterprise Dashboard Unified Data ──────────────────────────────────────
+    def get_enterprise_dashboard_data(self, org_id: str, filters: dict) -> Dict[str, Any]:
+        """Fetch filtered dashboard data for enterprise summary and recent transactions."""
+        try:
+            start_date = filters.get('start_date')
+            end_date   = filters.get('end_date')
+            tx_type    = str(filters.get('type', 'All')).lower()
+            staff      = str(filters.get('staff', 'All'))
+            firm       = str(filters.get('firm', 'All'))
+            method     = str(filters.get('method', 'All'))
+
+            revenue_data = []
+            expense_data = []
+            invest_data  = []
+            holding_data = []
+
+            # 1. Revenue
+            if tx_type in ['all', 'income']:
+                q_rev = self.db.table('ent_revenue').select('*, enterprise_bank_accounts(bank_name)').eq('organization_id', org_id)
+                if start_date: q_rev = q_rev.gte('date', start_date)
+                if end_date:   q_rev = q_rev.lte('date', end_date)
+                if staff.lower() != 'all': q_rev = q_rev.eq('taken_by', staff)
+                if firm.lower() != 'all':  q_rev = q_rev.eq('firm', firm)
+                if method.lower() == 'cash':
+                    q_rev = q_rev.is_('bank_account_id', 'null')
+                elif method.lower() != 'all':
+                    q_rev = q_rev.eq('bank_account_id', method)
+                try:
+                    res = q_rev.execute()
+                    for r in (res.data or []):
+                        revenue_data.append({
+                            'taken_by_name': r.get('taken_by') or 'Unknown',
+                            'bank_name':     r.get('enterprise_bank_accounts', {}) and r['enterprise_bank_accounts'].get('bank_name') or None,
+                            **r
+                        })
+                except Exception as e_rev:
+                    print(f"[get_dashboard_data] Revenue Error: {e_rev}")
+
+            # 2. Expenses
+            if tx_type in ['all', 'expense']:
+                q_exp = self.db.table('ent_expenses').select('*, enterprise_bank_accounts(bank_name)').eq('organization_id', org_id)
+                if start_date: q_exp = q_exp.gte('date', start_date)
+                if end_date:   q_exp = q_exp.lte('date', end_date)
+                if staff.lower() != 'all': q_exp = q_exp.eq('taken_by', staff)
+                if firm.lower() != 'all':  q_exp = q_exp.eq('firm', firm)
+                if method.lower() == 'cash':
+                    q_exp = q_exp.is_('bank_account_id', 'null')
+                elif method.lower() != 'all':
+                    q_exp = q_exp.eq('bank_account_id', method)
+                try:
+                    res = q_exp.execute()
+                    for r in (res.data or []):
+                        expense_data.append({
+                            'taken_by_name': r.get('taken_by') or 'Unknown',
+                            'bank_name':     r.get('enterprise_bank_accounts', {}) and r['enterprise_bank_accounts'].get('bank_name') or None,
+                            **r
+                        })
+                except Exception as e_exp:
+                    print(f"[get_dashboard_data] Expense Error: {e_exp}")
+
+            # 3. Investments
+            if tx_type in ['all', 'investment']:
+                q_inv = self.db.table('ent_investments').select('*').eq('organization_id', org_id)
+                if start_date: q_inv = q_inv.gte('date', start_date)
+                if end_date:   q_inv = q_inv.lte('date', end_date)
+                if staff.lower() != 'all': q_inv = q_inv.eq('taken_by', staff)
+                if firm.lower() != 'all':  q_inv = q_inv.eq('firm', firm)
+                # Ignore method filter for investments as it doesn't apply directly
+                try:
+                    res = q_inv.execute()
+                    invest_data = res.data or []
+                except Exception as e_inv:
+                    print(f"[get_dashboard_data] Investment Error: {e_inv}")
+
+            # 4. Holdings
+            if tx_type in ['all', 'holding']:
+                q_hol = self.db.table('ent_holding_payments').select('*').eq('organization_id', org_id)
+                if start_date: q_hol = q_hol.gte('created_at', f"{start_date}T00:00:00Z")
+                if end_date:   q_hol = q_hol.lte('created_at', f"{end_date}T23:59:59Z")
+                if staff.lower() != 'all': q_hol = q_hol.eq('created_by', staff)
+                if firm.lower() != 'all':  q_hol = q_hol.eq('firm', firm)
+                # Ignore method filter for holdings as it doesn't apply directly
+                try:
+                    res = q_hol.execute()
+                    holding_data = res.data or []
+                except Exception as e_hol:
+                    print(f"[get_dashboard_data] Holding Error: {e_hol}")
+
+            return {
+                'revenue': revenue_data,
+                'expenses': expense_data,
+                'investments': invest_data,
+                'holdings': holding_data
+            }
+        except Exception as e:
+            print(f"[get_enterprise_dashboard_data] {e}")
+            return {'revenue': [], 'expenses': [], 'investments': [], 'holdings': []}

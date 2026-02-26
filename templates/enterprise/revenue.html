@@ -11,22 +11,48 @@
         {% endif %}
     </div>
 
-    <!-- Period Filter Bar -->
-    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:1.5rem;">
-        <a href="?period=this_year" class="period-pill {% if period == 'this_year' %}active{% endif %}">This Year</a>
-        <a href="?period=this_month" class="period-pill {% if period == 'this_month' %}active{% endif %}">This Month</a>
-        <a href="?period=this_week" class="period-pill {% if period == 'this_week' %}active{% endif %}">This Week</a>
-        <a href="?period=custom" class="period-pill {% if period == 'custom' %}active{% endif %}">Custom</a>
-        {% if period == 'custom' %}
-        <form method="get" style="display:flex; align-items:center; gap:0.5rem; margin-left:0.25rem;">
-            <input type="hidden" name="period" value="custom">
-            <input type="date" name="start_date" value="{{ start_date or '' }}" class="form-control"
-                style="width:auto;">
-            <span style="color:var(--text-tertiary);">to</span>
-            <input type="date" name="end_date" value="{{ end_date or '' }}" class="form-control" style="width:auto;">
-            <button type="submit" class="btn-primary" style="padding:0.4rem 1rem;">Apply</button>
-        </form>
-        {% endif %}
+    <!-- Period and Firm Filter Bar -->
+    <div
+        style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:1.5rem; justify-content: space-between;">
+        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+            <a href="?period=this_year{% if selected_firm %}&firm={{ selected_firm }}{% endif %}"
+                class="period-pill {% if period == 'this_year' %}active{% endif %}">This Year</a>
+            <a href="?period=this_month{% if selected_firm %}&firm={{ selected_firm }}{% endif %}"
+                class="period-pill {% if period == 'this_month' %}active{% endif %}">This Month</a>
+            <a href="?period=this_week{% if selected_firm %}&firm={{ selected_firm }}{% endif %}"
+                class="period-pill {% if period == 'this_week' %}active{% endif %}">This Week</a>
+            <a href="?period=custom{% if selected_firm %}&firm={{ selected_firm }}{% endif %}"
+                class="period-pill {% if period == 'custom' %}active{% endif %}">Custom</a>
+            {% if period == 'custom' %}
+            <form method="get" style="display:flex; align-items:center; gap:0.5rem; margin-left:0.25rem;">
+                <input type="hidden" name="period" value="custom">
+                {% if selected_firm %}
+                <input type="hidden" name="firm" value="{{ selected_firm }}">
+                {% endif %}
+                <input type="date" name="start_date" value="{{ start_date or '' }}" class="form-control"
+                    style="width:auto;">
+                <span style="color:var(--text-tertiary);">to</span>
+                <input type="date" name="end_date" value="{{ end_date or '' }}" class="form-control"
+                    style="width:auto;">
+                <button type="submit" class="btn-primary" style="padding:0.4rem 1rem;">Apply</button>
+            </form>
+            {% endif %}
+        </div>
+
+        <div style="display:flex; align-items:center; gap:0.5rem;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Firm:</label>
+            <select name="firm" class="form-control" style="width: auto; padding: 0.35rem 0.75rem; font-size: 0.85rem;"
+                onchange="
+                const urlParams = new URLSearchParams(window.location.search);
+                urlParams.set('firm', this.value);
+                window.location.search = urlParams.toString();
+            ">
+                <option value="All" {% if selected_firm=='All' %}selected{% endif %}>All Firms</option>
+                {% for f in firms_list %}
+                <option value="{{ f.name }}" {% if selected_firm==f.name %}selected{% endif %}>{{ f.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
     </div>
 
     <!-- Table -->

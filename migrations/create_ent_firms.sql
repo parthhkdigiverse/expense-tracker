@@ -4,7 +4,6 @@ CREATE TABLE IF NOT EXISTS public.ent_firms (
     organization_id UUID NOT NULL REFERENCES public.ent_organizations(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     opening_balance NUMERIC(15, 2) DEFAULT 0,
-    current_bank_balance NUMERIC(15, 2) DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 

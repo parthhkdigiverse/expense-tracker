@@ -1,6 +1,85 @@
 {% extends "enterprise/layout.html" %}
 
 {% block enterprise_content %}
+<!-- Master Filter Bar -->
+<div class="ent-section filter-bar"
+    style="margin-bottom: 1.5rem; padding: 1rem 1.25rem; background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.03);">
+    <form method="GET" action="{{ url_for('enterprise.ent_dashboard') }}"
+        style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+        <!-- Time Period -->
+        <div style="flex: 1; min-width: 140px;">
+            <label
+                style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.35rem; display: block;">Time
+                Period</label>
+            <select name="time_period" class="form-control" style="font-size: 0.85rem; padding: 0.5rem 0.75rem;">
+                <option value="This Month" {% if time_period=='This Month' %}selected{% endif %}>This Month</option>
+                <option value="Last Month" {% if time_period=='Last Month' %}selected{% endif %}>Last Month</option>
+                <option value="This Year" {% if time_period=='This Year' %}selected{% endif %}>This Year</option>
+                <option value="All Time" {% if time_period=='All Time' %}selected{% endif %}>All Time</option>
+            </select>
+        </div>
+
+        <!-- Transaction Type -->
+        <div style="flex: 1; min-width: 140px;">
+            <label
+                style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.35rem; display: block;">Type</label>
+            <select name="type" class="form-control" style="font-size: 0.85rem; padding: 0.5rem 0.75rem;">
+                <option value="All" {% if tx_type=='All' %}selected{% endif %}>All Types</option>
+                <option value="Income" {% if tx_type=='Income' %}selected{% endif %}>Income / Revenue</option>
+                <option value="Expense" {% if tx_type=='Expense' %}selected{% endif %}>Expense</option>
+                <option value="Investment" {% if tx_type=='Investment' %}selected{% endif %}>Investment</option>
+                <option value="Holding" {% if tx_type=='Holding' %}selected{% endif %}>Holding</option>
+            </select>
+        </div>
+
+        <!-- Staff -->
+        <div style="flex: 1; min-width: 140px;">
+            <label
+                style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.35rem; display: block;">Staff</label>
+            <select name="staff" class="form-control" style="font-size: 0.85rem; padding: 0.5rem 0.75rem;">
+                <option value="All" {% if staff_filter=='All' %}selected{% endif %}>All Staff</option>
+                {% for s in staff_list %}
+                <option value="{{ s.id }}" {% if staff_filter==s.id|string %}selected{% endif %}>{{ s.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- Firm -->
+        <div style="flex: 1; min-width: 140px;">
+            <label
+                style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.35rem; display: block;">Firm</label>
+            <select name="firm" class="form-control" style="font-size: 0.85rem; padding: 0.5rem 0.75rem;">
+                <option value="All" {% if firm_filter=='All' %}selected{% endif %}>All Firms</option>
+                {% for f in firms_list %}
+                <option value="{{ f.name }}" {% if firm_filter==f.name %}selected{% endif %}>{{ f.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- Method -->
+        <div style="flex: 1; min-width: 140px;">
+            <label
+                style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.35rem; display: block;">Payment
+                Method</label>
+            <select name="method" class="form-control" style="font-size: 0.85rem; padding: 0.5rem 0.75rem;">
+                <option value="All" {% if method_filter=='All' %}selected{% endif %}>All Methods</option>
+                <option value="cash" {% if method_filter=='cash' %}selected{% endif %}>Cash</option>
+                {% for b in enterprise_banks %}
+                <option value="{{ b.id }}" {% if method_filter==b.id|string %}selected{% endif %}>{{ b.bank_name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- Apply Button -->
+        <div style="min-width: 120px;">
+            <button type="submit" class="btn-primary" style="width: 100%; padding: 0.5rem 1rem; font-size: 0.85rem;">
+                Apply Filters
+            </button>
+        </div>
+    </form>
+</div>
+
 <!-- Metric Grid -->
 <div class="ent-grid">
     <!-- Revenue -->
@@ -83,53 +162,54 @@
         </div>
     </div>
 
-    <!-- Reports List -->
+    <!-- Recent Transactions -->
     <div class="span-8 ent-section">
         <div class="section-header">
-            <h3>Executive Financial Reports</h3>
+            <h3>Recent Transactions</h3>
         </div>
         <div class="reports-table-wrapper">
             <table class="reports-table">
                 <thead>
                     <tr>
-                        <th>Report</th>
-                        <th>Date Range</th>
-                        <th>Net P/L</th>
-                        <th>Action</th>
+                        <th>Date</th>
+                        <th>Details</th>
+                        <th>Type</th>
+                        <th style="text-align: right;">Amount</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for rpt in report_data %}
+                    {% for txn in recent_transactions %}
                     <tr>
+                        <td style="color:var(--text-tertiary); font-size:0.85rem;">{{ txn.date[:10] if txn.date else '—'
+                            }}</td>
                         <td>
-                            <div style="font-weight:600;">{{ rpt.name }}</div>
-                            <div style="font-size:0.78rem; color:var(--text-tertiary); margin-top:0.15rem;">
-                                Income {{ currency }}{{ rpt.income }} &nbsp;|&nbsp; Expense {{ currency }}{{ rpt.expense
-                                }}
+                            <div style="font-weight:600; color:var(--text-primary);">{{ txn.narrative or txn.name or
+                                'Transaction' }}</div>
+                            <div style="font-size:0.75rem; color:var(--text-tertiary); margin-top:0.2rem;">
+                                {% if txn.firm %}
+                                <span class="badge"
+                                    style="background:var(--bg-secondary); color:var(--text-secondary); padding:0.1rem 0.4rem; font-size:0.65rem; margin-right:0.3rem; border: 1px solid var(--border-color);">{{
+                                    txn.firm }}</span>
+                                {% endif %}
+                                {{ txn.category or txn.type|title }} • {{ txn.taken_by_name or 'System' }}
                             </div>
                         </td>
-                        <td>{{ rpt.range }}</td>
                         <td>
-                            <span class="{{ 'status-positive' if rpt.positive else 'status-negative' }}"
-                                style="font-weight:600;">
-                                {{ currency }}{{ rpt.net }}
+                            <span class="badge"
+                                style="background:{% if txn.tx_type in ['Income', 'Investment'] %}#ecfdf5{% else %}#fef2f2{% endif %}; color:{% if txn.tx_type in ['Income', 'Investment'] %}#065f46{% else %}#991b1b{% endif %}; border: 1px solid {% if txn.tx_type in ['Income', 'Investment'] %}#a7f3d0{% else %}#fecaca{% endif %};">
+                                {{ txn.tx_type }}
                             </span>
                         </td>
-                        <td>
-                            {% if rpt.can_download %}
-                            <a href="{{ url_for('enterprise.export', format='csv') }}?{{ rpt.dl_params }}"
-                                style="color:var(--brand-start); font-weight:600; text-decoration:none;">
-                                Download CSV
-                            </a>
-                            {% else %}
-                            <span style="color:var(--text-tertiary);">—</span>
-                            {% endif %}
+                        <td style="text-align:right; font-weight:600;"
+                            class="{% if txn.tx_type in ['Income', 'Investment'] %}status-positive{% else %}status-negative{% endif %}">
+                            {{ '+' if txn.tx_type in ['Income', 'Investment'] else '-' }}{{ currency }}{{
+                            "%.2f"|format(txn.amount|float) }}
                         </td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="4" style="text-align:center; color:var(--text-tertiary); padding:1.5rem;">
-                            No data yet for this period.
+                        <td colspan="4" style="text-align:center; color:var(--text-tertiary); padding:2rem;">
+                            No transactions found for the selected filters.
                         </td>
                     </tr>
                     {% endfor %}

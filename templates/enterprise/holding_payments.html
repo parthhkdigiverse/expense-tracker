@@ -3,6 +3,68 @@
 {% block enterprise_content %}
 
 <!-- ============================================================
+     FILTER BAR
+     ============================================================ -->
+<div class="ent-section" style="margin-bottom: 1.5rem; padding: 1.25rem;">
+    <form method="GET" style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+        <!-- Time Period -->
+        <div class="form-group" style="flex: 1; min-width: 150px;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Time Period</label>
+            <select name="period" class="form-control" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;"
+                onchange="this.form.submit()">
+                <option value="this_month" {% if period=='this_month' %}selected{% endif %}>This Month</option>
+                <option value="last_month" {% if period=='last_month' %}selected{% endif %}>Last Month</option>
+                <option value="this_year" {% if period=='this_year' %}selected{% endif %}>This Year</option>
+                <option value="all" {% if period=='all' %}selected{% endif %}>All Time</option>
+            </select>
+        </div>
+        <!-- Type -->
+        <div class="form-group" style="flex: 1; min-width: 150px;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Type</label>
+            <select name="type" class="form-control" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;"
+                onchange="this.form.submit()">
+                <option value="All" {% if hold_type=='All' %}selected{% endif %}>All Types</option>
+                <option value="receivable" {% if hold_type=='receivable' %}selected{% endif %}>Receivable</option>
+                <option value="payable" {% if hold_type=='payable' %}selected{% endif %}>Payable</option>
+            </select>
+        </div>
+        <!-- Status -->
+        <div class="form-group" style="flex: 1; min-width: 150px;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Status</label>
+            <select name="status" class="form-control" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;"
+                onchange="this.form.submit()">
+                <option value="All" {% if status_val=='All' %}selected{% endif %}>All Statuses</option>
+                <option value="pending" {% if status_val=='pending' %}selected{% endif %}>Pending</option>
+                <option value="partial" {% if status_val=='partial' %}selected{% endif %}>Partial</option>
+                <option value="settled" {% if status_val=='settled' %}selected{% endif %}>Settled</option>
+            </select>
+        </div>
+        <!-- Staff -->
+        <div class="form-group" style="flex: 1; min-width: 150px;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Handled By</label>
+            <select name="staff" class="form-control" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;"
+                onchange="this.form.submit()">
+                <option value="All" {% if handled_by=='All' %}selected{% endif %}>All Staff</option>
+                {% for st in org_members %}
+                <option value="{{ st.name }}" {% if handled_by==st.name %}selected{% endif %}>{{ st.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <!-- Firm -->
+        <div class="form-group" style="flex: 1; min-width: 150px;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Firm</label>
+            <select name="firm" class="form-control" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;"
+                onchange="this.form.submit()">
+                <option value="All" {% if firm_val=='All' %}selected{% endif %}>All Firms</option>
+                {% for f in firms_list %}
+                <option value="{{ f.name }}" {% if firm_val==f.name %}selected{% endif %}>{{ f.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </form>
+</div>
+
+<!-- ============================================================
      KPI BOXES — 3 in a row (forced flex row)
      ============================================================ -->
 <div style="display: flex; flex-direction: row; gap: 1.25rem; margin-bottom: 1.75rem; flex-wrap: nowrap;">
