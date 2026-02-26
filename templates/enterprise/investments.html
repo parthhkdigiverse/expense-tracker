@@ -242,7 +242,6 @@
             <div class="form-group" style="margin-bottom: 1.5rem;">
                 <label style="font-weight: 600; font-size: 0.875rem;">Payment Method</label>
                 <select name="method" class="form-control" style="margin-top:0.35rem;">
-                    <option value="Cash">Cash</option>
                     {% for bank in enterprise_banks %}
                     <option value="{{ bank.id }}">{{ bank.bank_name }} ({{ bank.account_type or 'Bank' }})</option>
                     {% endfor %}
