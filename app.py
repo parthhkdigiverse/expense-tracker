@@ -1056,10 +1056,14 @@ def bulk_add():
         banks = get_db(token).table('bank_accounts').select('id, bank_name').eq('user_id', session['user']).execute().data
         prof = get_db(token).table('profiles').select('currency').eq('id', session['user']).execute()
         currency = prof.data[0]['currency'] if prof.data else '₹'
-        categories = get_all_categories(token, session['user'])
+        expense_categories = get_all_categories(token, session['user'], 'expense')
+        income_categories = get_all_categories(token, session['user'], 'income')
     except Exception:
-        banks, currency, categories = [], '₹', DEFAULT_CATEGORIES
-    return render_template('bulk_add.html', today=datetime.date.today(), banks=banks, currency=currency, categories=categories)
+        banks, currency = [], '₹'
+        expense_categories = DEFAULT_EXPENSE_CATEGORIES
+        income_categories = DEFAULT_INCOME_CATEGORIES
+    return render_template('bulk_add.html', today=datetime.date.today(), banks=banks, currency=currency, 
+                           expense_categories=expense_categories, income_categories=income_categories)
 
 @app.route('/edit_expense/<expense_id>', methods=['GET', 'POST'])
 def edit_expense(expense_id):

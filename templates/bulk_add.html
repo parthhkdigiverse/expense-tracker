@@ -17,10 +17,10 @@
                     <thead>
                         <tr>
                             <th>Date</th>
+                            <th>Type</th>
                             <th>Category</th>
                             <th>Amount ({{ currency }})</th>
                             <th>Description</th>
-                            <th>Type</th>
                             <th>Bank/Cash</th>
                             <th></th>
                         </tr>
@@ -30,21 +30,18 @@
                         <tr class="entry-row">
                             <td><input type="date" name="date[]" value="{{ today }}" required></td>
                             <td>
-                                <select name="category[]" required>
-                                    <option value="" disabled selected>Select</option>
-                                    {% for cat in categories %}
-                                    <option value="{{ cat }}">{{ cat }}</option>
-                                    {% endfor %}
-                                </select>
-                            </td>
-                            <td><input type="number" name="amount[]" step="0.01" placeholder="0.00" required></td>
-                            <td><input type="text" name="description[]" placeholder="Description"></td>
-                            <td>
-                                <select name="type[]">
+                                <select name="type[]" class="type-select" onchange="updateCategoryOptions(this)">
                                     <option value="expense">Expense</option>
                                     <option value="income">Income</option>
                                 </select>
                             </td>
+                            <td>
+                                <select name="category[]" class="category-select" required>
+                                    <option value="" disabled selected>Select</option>
+                                </select>
+                            </td>
+                            <td><input type="number" name="amount[]" step="0.01" placeholder="0.00" required></td>
+                            <td><input type="text" name="description[]" placeholder="Description"></td>
                             <td>
                                 <select name="bank_account_id[]">
                                     <option value="">Cash</option>
@@ -69,6 +66,32 @@
 </div>
 
 <script>
+    const expenseCategories = {{ expense_categories | tojson | safe }};
+    const incomeCategories = {{ income_categories | tojson | safe }};
+
+    function populateCategories(selectElement, type) {
+        selectElement.innerHTML = '<option value="" disabled selected>Select</option>';
+        const options = type === 'income' ? incomeCategories : expenseCategories;
+        options.forEach(cat => {
+            const option = document.createElement('option');
+            option.value = cat;
+            option.textContent = cat;
+            selectElement.appendChild(option);
+        });
+    }
+
+    function updateCategoryOptions(typeSelect) {
+        const row = typeSelect.closest('tr');
+        const categorySelect = row.querySelector('.category-select');
+        populateCategories(categorySelect, typeSelect.value);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const initialCategorySelect = document.querySelector('.category-select');
+        const initialTypeSelect = document.querySelector('.type-select');
+        populateCategories(initialCategorySelect, initialTypeSelect.value);
+    });
+
     function addRow() {
         const tableBody = document.querySelector('#bulk-table tbody');
         const firstRow = tableBody.querySelector('.entry-row');
@@ -79,6 +102,12 @@
             if (input.type !== 'date') input.value = '';
             // keep date as is or reset? let's keep it for convenience
         });
+
+        // Reset category choices and selections
+        const newTypeSelect = newRow.querySelector('.type-select');
+        newTypeSelect.value = 'expense';
+        const newCategorySelect = newRow.querySelector('.category-select');
+        populateCategories(newCategorySelect, 'expense');
 
         tableBody.appendChild(newRow);
     }
