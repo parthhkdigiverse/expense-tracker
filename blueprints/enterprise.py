@@ -279,8 +279,7 @@ def ent_dashboard():
             'end_date': end_date,
             'type': request.args.get('type', 'All'),
             'staff': request.args.get('staff', 'All'),
-            'firm': request.args.get('firm', 'All'),
-            'method': request.args.get('method', 'All')
+            'firm': request.args.get('firm', 'All')
         }
 
         data = svc.get_enterprise_dashboard_data(org_id, filters)
@@ -292,7 +291,6 @@ def ent_dashboard():
         # Dropdowns lookup
         staff_list = svc.get_org_members(org_id)
         firms_list = svc.get_firms(org_id)
-        enterprise_banks = svc.get_banks_for_org(session['user'], session.get('active_business'))
 
         total_rev    = sum(Decimal(str(r.get('amount') or 0)) for r in revenue_data)
         total_exp    = sum(Decimal(str(e.get('amount') or 0)) for e in expense_data)
@@ -371,9 +369,7 @@ def ent_dashboard():
                                time_period=period, tx_type=request.args.get('type', 'All'),
                                staff_filter=request.args.get('staff', 'All'),
                                firm_filter=request.args.get('firm', 'All'),
-                               method_filter=request.args.get('method', 'All'),
-                               staff_list=staff_list, firms_list=firms_list,
-                               enterprise_banks=enterprise_banks)
+                               staff_list=staff_list, firms_list=firms_list)
 
     except Exception as e:
         current_app.logger.error(f"Enterprise Dashboard Error: {e}", exc_info=True)

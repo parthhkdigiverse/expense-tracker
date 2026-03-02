@@ -56,20 +56,6 @@
             </select>
         </div>
 
-        <!-- Method -->
-        <div style="flex: 1; min-width: 140px;">
-            <label
-                style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.35rem; display: block;">Payment
-                Method</label>
-            <select name="method" class="form-control" style="font-size: 0.85rem; padding: 0.5rem 0.75rem;">
-                <option value="All" {% if method_filter=='All' %}selected{% endif %}>All Methods</option>
-                <option value="cash" {% if method_filter=='cash' %}selected{% endif %}>Cash</option>
-                {% for b in enterprise_banks %}
-                <option value="{{ b.id }}" {% if method_filter==b.id|string %}selected{% endif %}>{{ b.bank_name }}
-                </option>
-                {% endfor %}
-            </select>
-        </div>
 
         <!-- Apply Button -->
         <div style="min-width: 120px;">
