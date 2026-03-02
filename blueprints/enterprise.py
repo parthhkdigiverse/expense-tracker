@@ -624,6 +624,98 @@ def add_transaction():
         flash(f"Transaction failed: {e}", "error")
     return redirect(url_for('enterprise.revenue_expenses'))
 
+# ── Edit Transaction ──────────────────────────────────────────────────────────
+@enterprise_bp.route('/edit-transaction', methods=['POST'])
+@enterprise_required
+def edit_transaction():
+    org_id    = session.get('curr_org_id')
+    svc       = _svc()
+    user_id   = session['user']
+    txn_id    = request.form.get('txn_id')
+    orig_type = request.form.get('orig_type')
+    t_type    = request.form.get('type')
+    amount    = request.form.get('amount')
+    date      = request.form.get('date', datetime.date.today().strftime('%Y-%m-%d'))
+    method_val = request.form.get('method')
+    narrative = request.form.get('narrative')
+    category  = request.form.get('category') or 'Other'
+    firm      = request.form.get('firm') or None
+
+    if not txn_id or not orig_type or not amount or not t_type or not method_val:
+        flash("Missing required fields for edit", "error")
+        return redirect(url_for('enterprise.revenue_expenses'))
+
+    bank_account_id = None if method_val == 'Cash' else method_val
+    method          = 'Cash' if method_val == 'Cash' else 'Bank'
+
+    taken_by_val = request.form.get('taken_by', '').strip()
+    if not taken_by_val or taken_by_val == '__other__':
+        taken_by_val = user_id
+
+    data = {
+        'amount': amount, 'date': date, 'method': method,
+        'narrative': narrative, 'taken_by': taken_by_val,
+        'bank_account_id': bank_account_id,
+        'firm': firm
+    }
+
+    try:
+        # If type is the same, just update
+        if orig_type == t_type:
+            if t_type == 'Income':
+                # Income doesn't use category in our current schema
+                success = svc.update_revenue(org_id, txn_id, data)
+            else:
+                data['category'] = category
+                success = svc.update_expense(org_id, txn_id, data)
+        else:
+            # Type changed, need to delete old and insert new
+            if orig_type == 'Income':
+                svc.delete_revenue(org_id, txn_id)
+            else:
+                svc.delete_expense(org_id, txn_id)
+
+            if t_type == 'Income':
+                success = svc.add_revenue(org_id, data)
+            else:
+                data['category'] = category
+                success = svc.add_expense(org_id, data)
+
+        flash("Transaction updated successfully.", "success")
+    except Exception as e:
+        flash(f"Update failed: {e}", "error")
+
+    return redirect(url_for('enterprise.revenue_expenses'))
+
+# ── Delete Transaction ────────────────────────────────────────────────────────
+@enterprise_bp.route('/delete-transaction', methods=['POST'])
+@enterprise_required
+def delete_transaction():
+    org_id = session.get('curr_org_id')
+    svc    = _svc()
+    txn_id = request.form.get('txn_id')
+    t_type = request.form.get('type')
+
+    if not txn_id or not t_type:
+        flash("Missing required fields for deletion", "error")
+        return redirect(url_for('enterprise.revenue_expenses'))
+
+    try:
+        if t_type == 'Income':
+            success = svc.delete_revenue(org_id, txn_id)
+        else:
+            success = svc.delete_expense(org_id, txn_id)
+
+        if success:
+            flash("Transaction deleted successfully.", "success")
+        else:
+            flash("Failed to delete transaction.", "error")
+    except Exception as e:
+        flash(f"Deletion failed: {e}", "error")
+
+    return redirect(url_for('enterprise.revenue_expenses'))
+
+
 # ── Add Member (fast/AJAX) ────────────────────────────────────────────────────
 @enterprise_bp.route('/add-member-fast', methods=['POST'])
 @enterprise_required

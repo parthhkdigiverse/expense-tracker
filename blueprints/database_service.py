@@ -40,7 +40,11 @@ class BaseService:
     def get_revenue(self, org_id: str, start_date: str = None, end_date: str = None, firm: str = None) -> List[Dict[str, Any]]: raise NotImplementedError
     def get_expenses(self, org_id: str, start_date: str = None, end_date: str = None, firm: str = None) -> List[Dict[str, Any]]: raise NotImplementedError
     def add_revenue(self, org_id: str, data: Dict[str, Any]) -> bool: raise NotImplementedError
+    def update_revenue(self, org_id: str, rev_id: str, data: Dict[str, Any]) -> bool: raise NotImplementedError
+    def delete_revenue(self, org_id: str, rev_id: str) -> bool: raise NotImplementedError
     def add_expense(self, org_id: str, data: Dict[str, Any]) -> bool: raise NotImplementedError
+    def update_expense(self, org_id: str, exp_id: str, data: Dict[str, Any]) -> bool: raise NotImplementedError
+    def delete_expense(self, org_id: str, exp_id: str) -> bool: raise NotImplementedError
     def get_investments(self, org_id: str, start_date: str = None, end_date: str = None, inv_type: str = None, taken_by: str = None, firm: str = None) -> List[Dict[str, Any]]: raise NotImplementedError
     def add_investment(self, org_id: str, data: dict) -> bool: raise NotImplementedError
     def get_members(self, org_id: str) -> List[Dict[str, Any]]: raise NotImplementedError
@@ -494,6 +498,22 @@ class SupabaseService(BaseService):
             print(f"[add_revenue] {e}")
             return False
 
+    def update_revenue(self, org_id: str, rev_id: str, data: Dict[str, Any]) -> bool:
+        try:
+            self.db.table('ent_revenue').update(data).eq('id', rev_id).eq('organization_id', org_id).execute()
+            return True
+        except Exception as e:
+            print(f"[update_revenue] {e}")
+            return False
+
+    def delete_revenue(self, org_id: str, rev_id: str) -> bool:
+        try:
+            self.db.table('ent_revenue').delete().eq('id', rev_id).eq('organization_id', org_id).execute()
+            return True
+        except Exception as e:
+            print(f"[delete_revenue] {e}")
+            return False
+
     # ── Expenses ──────────────────────────────────────────────────────────────
     def get_expenses(self, org_id: str, start_date: str = None, end_date: str = None, firm: str = None) -> List[Dict[str, Any]]:
         query = self.db.table('ent_expenses') \
@@ -519,6 +539,22 @@ class SupabaseService(BaseService):
             return True
         except Exception as e:
             print(f"[add_expense] {e}")
+            return False
+
+    def update_expense(self, org_id: str, exp_id: str, data: Dict[str, Any]) -> bool:
+        try:
+            self.db.table('ent_expenses').update(data).eq('id', exp_id).eq('organization_id', org_id).execute()
+            return True
+        except Exception as e:
+            print(f"[update_expense] {e}")
+            return False
+
+    def delete_expense(self, org_id: str, exp_id: str) -> bool:
+        try:
+            self.db.table('ent_expenses').delete().eq('id', exp_id).eq('organization_id', org_id).execute()
+            return True
+        except Exception as e:
+            print(f"[delete_expense] {e}")
             return False
 
     # ── Investments ───────────────────────────────────────────────────────────
