@@ -84,7 +84,7 @@ class SupabaseService(BaseService):
     def get_all_users(self) -> List[Dict[str, Any]]:
         """Fetch all user profiles, bypassing RLS. Must be run with service client."""
         try:
-            res = self.db.table('profiles').select('*').order('created_at', desc=True).execute()
+            res = self.db.table('profiles').select('*').execute()
             return res.data if res.data else []
         except Exception as e:
             print(f"[get_all_users] Error: {e}")
