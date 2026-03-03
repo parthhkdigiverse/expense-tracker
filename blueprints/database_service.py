@@ -176,28 +176,40 @@ class SupabaseService(BaseService):
             return False
 
     def get_all_organizations(self) -> list:
-        """Fetches all organizations using bypass service client, including member counts."""
+        """Fetches all organizations using bypass service client, including member counts and creator name."""
         try:
             svc_client = get_supabase_service_client()
             if not svc_client: return []
             
             # Since Supabase rest API doesn't do complex joins natively well for counts,
             # we fetch all orgs, and then all members, and map them in python.
-            org_res = svc_client.table('ent_organizations').select('*').execute()
-            # Fetch all members to count them per org
-            mem_res = svc_client.table('ent_members').select('organization_id').execute()
+            org_res = svc_client.table('ent_organizations').select('*').order('created_at', desc=True).execute()
+            # Fetch all members to count them per org and find owners
+            mem_res = svc_client.table('ent_members').select('organization_id, user_id, role').execute()
             
             orgs = org_res.data or []
             members = mem_res.data or []
             
             member_counts = {}
+            owner_user_ids = {}
             for m in members:
                 org_id = m.get('organization_id')
                 if org_id:
                     member_counts[org_id] = member_counts.get(org_id, 0) + 1
+                    if m.get('role') == 'owner' and org_id not in owner_user_ids:
+                        owner_user_ids[org_id] = m.get('user_id')
+            
+            # Fetch profiles for the owners
+            unique_owner_ids = list(set(owner_user_ids.values()))
+            profiles_map = {}
+            if unique_owner_ids:
+                prof_res = svc_client.table('profiles').select('id, full_name').in_('id', unique_owner_ids).execute()
+                profiles_map = {p['id']: p.get('full_name', 'Unknown') for p in (prof_res.data or [])}
                 
             for o in orgs:
                 o['member_count'] = member_counts.get(o['id'], 0)
+                owner_id = owner_user_ids.get(o['id'])
+                o['organizer_name'] = profiles_map.get(owner_id, "Unknown User") if owner_id else "Unknown User"
                 
             return orgs
         except Exception as e:

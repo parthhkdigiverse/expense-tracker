@@ -12,6 +12,7 @@
         <thead>
             <tr>
                 <th>Organization Name</th>
+                <th>Created By (User)</th>
                 <th>Created At</th>
                 <th>Members</th>
                 <th>Actions</th>
@@ -29,6 +30,7 @@
                     </svg>
                     {{ org.name }}
                 </td>
+                <td style="color: var(--text-secondary);">{{ org.organizer_name }}</td>
                 <td>{{ org.created_at[:10] if org.created_at else "Unknown" }}</td>
                 <td>
                     <span
@@ -52,7 +54,7 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="4" style="text-align: center; padding: 40px; color: var(--text-secondary);">No
+                <td colspan="5" style="text-align: center; padding: 40px; color: var(--text-secondary);">No
                     organizations found.</td>
             </tr>
             {% endfor %}
