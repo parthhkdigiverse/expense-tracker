@@ -933,7 +933,7 @@ class SupabaseService(BaseService):
             holding_data = []
 
             # 1. Revenue
-            if tx_type in ['all', 'income']:
+            if tx_type in ['all', 'income', 'income & expense']:
                 q_rev = self.db.table('ent_revenue').select('*, enterprise_bank_accounts(bank_name)').eq('organization_id', org_id)
                 if start_date: q_rev = q_rev.gte('date', start_date)
                 if end_date:   q_rev = q_rev.lte('date', end_date)
@@ -955,7 +955,7 @@ class SupabaseService(BaseService):
                     print(f"[get_dashboard_data] Revenue Error: {e_rev}")
 
             # 2. Expenses
-            if tx_type in ['all', 'expense']:
+            if tx_type in ['all', 'expense', 'income & expense']:
                 q_exp = self.db.table('ent_expenses').select('*, enterprise_bank_accounts(bank_name)').eq('organization_id', org_id)
                 if start_date: q_exp = q_exp.gte('date', start_date)
                 if end_date:   q_exp = q_exp.lte('date', end_date)

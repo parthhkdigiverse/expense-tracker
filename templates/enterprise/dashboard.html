@@ -25,6 +25,8 @@
                 style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.35rem; display: block;">Type</label>
             <select name="type" class="form-control" style="font-size: 0.85rem; padding: 0.5rem 0.75rem;">
                 <option value="All" {% if tx_type=='All' %}selected{% endif %}>All Types</option>
+                <option value="Income & Expense" {% if tx_type=='Income & Expense' %}selected{% endif %}>Income &
+                    Expense</option>
                 <option value="Income" {% if tx_type=='Income' %}selected{% endif %}>Income / Revenue</option>
                 <option value="Expense" {% if tx_type=='Expense' %}selected{% endif %}>Expense</option>
                 <option value="Investment" {% if tx_type=='Investment' %}selected{% endif %}>Investment</option>
