@@ -280,6 +280,33 @@ class SupabaseService(BaseService):
             all_transactions = revenues + expenses
             all_transactions.sort(key=lambda x: x.get('date', ''), reverse=True)
             
+            # Extract unique user IDs from taken_by (only valid UUIDs)
+            import uuid
+            valid_user_ids = set()
+            for t in all_transactions:
+                tb = t.get('taken_by')
+                if tb:
+                    try:
+                        uuid.UUID(str(tb))
+                        valid_user_ids.add(tb)
+                    except ValueError:
+                        pass
+            valid_user_ids = list(valid_user_ids)
+            
+            # Fetch user profiles to resolve names
+            profiles_map = {}
+            if valid_user_ids:
+                prof_res = svc_client.table('profiles').select('id, full_name').in_('id', valid_user_ids).execute()
+                profiles_map = {p['id']: p.get('full_name', 'Unknown User') for p in (prof_res.data or [])}
+                
+            # Map names back to transactions
+            for t in all_transactions:
+                taken_by_id = t.get('taken_by')
+                if taken_by_id in profiles_map:
+                    t['taken_by'] = profiles_map[taken_by_id]
+                elif not taken_by_id:
+                    t['taken_by'] = "Unknown"
+            
             return all_transactions
         except Exception as e:
             print(f"[get_all_global_transactions] Error: {e}")
